@@ -1,0 +1,15 @@
+/build/
+/verification/run-*/
+/LightCapture*.exe
+/.tools/
+/.vs/
+/.vscode/
+__pycache__/
+*.pyc
+*.o
+*.log
+*.partial
+captures/
+exports/
+settings.ini
+view.ini

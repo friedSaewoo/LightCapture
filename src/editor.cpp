@@ -1,0 +1,818 @@
+#include "app.h"
+namespace lc {
+HCURSOR App::canvasCursor(UINT dpi) {
+    if (panning)
+        return LoadCursor(nullptr, IDC_SIZEALL);
+    if (tool == Tool::Text)
+        return LoadCursor(nullptr, IDC_IBEAM);
+    if (tool == Tool::Select) {
+        if (dragging)
+            return LoadCursor(nullptr, resizing ? IDC_SIZENWSE : IDC_SIZEALL);
+        if (doc() && selectedObject >= 0 && selectedObject < (int)doc()->cursor) {
+            auto q = toImage(canvasMouse);
+            auto r = doc()->commands[selectedObject].rect;
+            if (inside(r, q))
+                return LoadCursor(nullptr, (std::abs(q.x - r.right) < 10 && std::abs(q.y - r.bottom) < 10)
+                                               ? IDC_SIZENWSE
+                                               : IDC_SIZEALL);
+        }
+        return LoadCursor(nullptr, IDC_ARROW);
+    }
+    UINT resource = tool == Tool::Pen         ? 3
+                    : tool == Tool::Erase     ? 4
+                    : tool == Tool::Highlight ? 5
+                    : tool == Tool::Mosaic    ? 6
+                                              : 0;
+    if (!resource)
+        return LoadCursor(nullptr, IDC_CROSS);
+    if (!dpi)
+        dpi = 96;
+    UINT key = resource * 10000 + dpi;
+    auto found = penCursors.find(key);
+    if (found != penCursors.end())
+        return found->second;
+    auto cursor = (HCURSOR)LoadImageW(instance, MAKEINTRESOURCEW(resource), IMAGE_CURSOR,
+                                      GetSystemMetricsForDpi(SM_CXCURSOR, dpi),
+                                      GetSystemMetricsForDpi(SM_CYCURSOR, dpi), LR_DEFAULTCOLOR);
+    require(cursor != nullptr, "tool cursor resource could not be loaded");
+    penCursors.emplace(key, cursor);
+    return cursor;
+}
+void App::refreshList() {
+    refreshHistoryActions();
+    int top = (int)SendMessageW(list, LB_GETTOPINDEX, 0, 0);
+    SendMessageW(list, LB_RESETCONTENT, 0, 0);
+    for (auto &d : store.docs) {
+        auto size = L"  " + std::to_wstring(d.width) + L" × " + std::to_wstring(d.height);
+        SendMessageW(list, LB_ADDSTRING, 0,
+                     (LPARAM)(d.name + size + (checkedHistory.count(d.id) ? L" · 체크됨" : L"")).c_str());
+    }
+    if (selected >= 0)
+        SendMessageW(list, LB_SETCURSEL, selected, 0);
+    SendMessageW(list, LB_SETTOPINDEX, std::max(0, top), 0);
+    updateTitle();
+}
+void App::select(int index) {
+    finishText();
+    if (index < 0 || index >= (int)store.docs.size())
+        return;
+    store.ensure(store.docs[index]);
+    if (selected != index && doc()) {
+        doc()->commands.clear();
+        doc()->commands.shrink_to_fit();
+        doc()->loaded = false;
+    }
+    if (selected != index || !original)
+        original = loadImage(store.png(store.docs[index]));
+    selected = index;
+    selectedObject = -1;
+    lastExport.clear();
+    rebuild();
+    zoom = 1;
+    panX = panY = 0;
+    RECT c;
+    GetClientRect(canvas, &c);
+    auto r = viewRect(*doc());
+    zoom = std::min(1.0f, std::min((rw(c) - 48.f) / std::max(1, rw(r)), (rh(c) - 48.f) / std::max(1, rh(r))));
+    zoom = std::max(.02f, zoom);
+    InvalidateRect(canvas, nullptr, FALSE);
+    InvalidateRect(list, nullptr, FALSE);
+    updateTitle();
+}
+void App::rebuild() {
+    if (doc() && original)
+        rendered = render(*original, *doc());
+    else
+        rendered.reset();
+    InvalidateRect(canvas, nullptr, FALSE);
+}
+void App::persist() {
+    if (doc()) {
+        store.save(*doc());
+        thumbs.erase(doc()->id);
+        InvalidateRect(list, nullptr, FALSE);
+    }
+}
+void App::add(Image image) {
+    finishText();
+    require(image != nullptr, "empty image");
+    store.add(*image);
+    selected = 0;
+    original = std::move(image);
+    rendered = clone(*original);
+    refreshList();
+    if (!testMode)
+        show();
+    select(0);
+    statusText(L"캡처 완료 · 편집 후 저장 버튼으로 저장 위치를 선택하세요.");
+}
+void App::edit(Command c) {
+    if (!doc())
+        return;
+    commit(*doc(), std::move(c));
+    selectedObject = (int)doc()->cursor - 1;
+    persist();
+    rebuild();
+}
+void App::undo(bool redo) {
+    if (!doc())
+        return;
+    if (redo) {
+        if (doc()->cursor < doc()->commands.size())
+            doc()->cursor++;
+    } else if (doc()->cursor)
+        doc()->cursor--;
+    selectedObject = -1;
+    persist();
+    rebuild();
+    updateTitle();
+}
+RECT App::imageBounds() {
+    if (!doc())
+        return {};
+    RECT c;
+    GetClientRect(canvas, &c);
+    auto r = viewRect(*doc());
+    int w = std::lround(rw(r) * zoom), h = std::lround(rh(r) * zoom);
+    int x = std::max(24, (rw(c) - w) / 2) + panX, y = std::max(24, (rh(c) - h) / 2) + panY;
+    return {x, y, x + w, y + h};
+}
+POINT App::toImage(POINT p) {
+    auto b = imageBounds(), r = doc() ? viewRect(*doc()) : RECT{};
+    return {LONG(std::floor((p.x - b.left) / zoom)) + r.left, LONG(std::floor((p.y - b.top) / zoom)) + r.top};
+}
+void App::setZoom(float factor) {
+    finishText();
+    zoom = std::clamp(factor, .02f, 8.f);
+    panX = panY = 0;
+    InvalidateRect(canvas, nullptr, FALSE);
+    updateTitle();
+}
+void App::paintCanvas(HDC dc) {
+    RECT c;
+    GetClientRect(canvas, &c);
+    HDC mem = CreateCompatibleDC(dc);
+    HBITMAP hb = CreateCompatibleBitmap(dc, std::max(1, rw(c)), std::max(1, rh(c)));
+    auto old = SelectObject(mem, hb);
+    {
+        Graphics g(mem);
+        g.Clear(Color(255, 231, 234, 239));
+        if (rendered && doc()) {
+            auto b = imageBounds(), r = viewRect(*doc());
+            Gdiplus::SolidBrush white(Color::White);
+            g.FillRectangle(&white, b.left, b.top, rw(b), rh(b));
+            g.SetInterpolationMode(zoom >= 1 ? Gdiplus::InterpolationModeNearestNeighbor
+                                             : Gdiplus::InterpolationModeHighQualityBicubic);
+            g.DrawImage(textInput && textBackdrop ? textBackdrop.get() : rendered.get(),
+                        Gdiplus::Rect(b.left, b.top, rw(b), rh(b)), r.left, r.top, rw(r), rh(r),
+                        Gdiplus::UnitPixel);
+            if (dragging) {
+                auto state = g.Save();
+                g.SetClip(Gdiplus::Rect(b.left, b.top, rw(b), rh(b)));
+                g.TranslateTransform((float)b.left, (float)b.top);
+                g.ScaleTransform(zoom, zoom);
+                g.TranslateTransform((float)-r.left, (float)-r.top);
+                g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+                if (draft.tool == Tool::Crop || draft.tool == Tool::Mosaic || draft.tool == Tool::Text) {
+                    Gdiplus::Pen p(Color(255, 37, 99, 235), 2 / zoom);
+                    p.SetDashStyle(Gdiplus::DashStyleDash);
+                    auto q = draft.rect;
+                    g.DrawRectangle(&p, q.left, q.top, rw(q), rh(q));
+                } else
+                    drawCommand(g, draft);
+                g.Restore(state);
+            }
+            if (textInput) {
+                auto rect = textScreenRect();
+                Gdiplus::Pen outline(Color(255, 37, 99, 235), 1);
+                outline.SetDashStyle(Gdiplus::DashStyleDash);
+                g.DrawRectangle(&outline, (int)rect.left - 1, (int)rect.top - 1, rw(rect) + 1, rh(rect) + 1);
+            }
+            if (!dragging && tool == Tool::Select && selectedObject >= 0 &&
+                selectedObject < (int)doc()->cursor) {
+                auto q = doc()->commands[selectedObject].rect;
+                int x = b.left + (q.left - r.left) * zoom, y = b.top + (q.top - r.top) * zoom;
+                int w = std::max(1, (int)(rw(q) * zoom)), h = std::max(1, (int)(rh(q) * zoom));
+                Gdiplus::Pen outline(Color(255, 37, 99, 235), 1);
+                outline.SetDashStyle(Gdiplus::DashStyleDash);
+                g.DrawRectangle(&outline, x, y, w, h);
+                Gdiplus::SolidBrush handle(Color(255, 37, 99, 235));
+                g.FillRectangle(&handle, x + w - 4, y + h - 4, 8, 8);
+            }
+        } else {
+            SetBkMode(mem, TRANSPARENT);
+            SetTextColor(mem, RGB(56, 65, 80));
+            SelectObject(mem, uiFont);
+            RECT text{32, 65, rw(c) - 32, 180};
+            DrawTextW(mem,
+                      L"Ctrl + Shift + X 로 영역을 캡처하세요\n\n왼쪽 목록에서 이전 캡처를 선택하거나 파일을 "
+                      L"열 수 있습니다.",
+                      -1, &text, DT_CENTER | DT_WORDBREAK);
+        }
+    }
+    BitBlt(dc, 0, 0, rw(c), rh(c), mem, 0, 0, SRCCOPY);
+    SelectObject(mem, old);
+    DeleteObject(hb);
+    DeleteDC(mem);
+}
+void App::paintList(DRAWITEMSTRUCT *item) {
+    if (item->itemID == (UINT)-1 || item->itemID >= store.docs.size())
+        return;
+    auto &d = store.docs[item->itemID];
+    auto r = item->rcItem;
+    auto dpi = GetDpiForWindow(list);
+    auto scale = [&](int v) { return MulDiv(v, dpi ? dpi : 96, 96); };
+    bool highlighted = (item->itemState & ODS_SELECTED) || checkedHistory.count(store.docs[item->itemID].id);
+    HBRUSH bg = CreateSolidBrush(highlighted ? RGB(219, 234, 254) : RGB(255, 255, 255));
+    FillRect(item->hDC, &r, bg);
+    DeleteObject(bg);
+    if (!thumbs.count(d.id)) {
+        try {
+            auto b = loadImage(store.png(d));
+            auto detail = d.loaded ? d : store.read(d);
+            auto v = output(*b, detail);
+            int w = std::max(1, std::min(164, (int)v->GetWidth())),
+                h = std::max(1, (int)(v->GetHeight() * (w / (float)v->GetWidth())));
+            if (h > 76) {
+                w = std::max(1, w * 76 / h);
+                h = 76;
+            }
+            auto thumb = std::make_unique<Bitmap>(w, h, PixelFormat32bppARGB);
+            {
+                Graphics g(thumb.get());
+                g.Clear(Color::White);
+                g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+                g.DrawImage(v.get(), 0, 0, w, h);
+            }
+            thumbs[d.id] = std::move(thumb);
+            if (thumbs.size() > 24) {
+                auto it = thumbs.begin();
+                if (it->first == d.id)
+                    ++it;
+                if (it != thumbs.end())
+                    thumbs.erase(it);
+            }
+        } catch (...) {
+        }
+    }
+    if (thumbs.count(d.id)) {
+        Graphics g(item->hDC);
+        auto t = thumbs[d.id].get();
+        int w = scale((int)t->GetWidth()), h = scale((int)t->GetHeight());
+        g.DrawImage(t, (int)r.left + (rw(r) - w) / 2, (int)r.top + scale(8), w, h);
+    }
+    SetBkMode(item->hDC, TRANSPARENT);
+    SetTextColor(item->hDC, RGB(31, 41, 55));
+    auto old = SelectObject(item->hDC, uiFont);
+    auto checkbox = historyCheckRect(r, dpi);
+    DrawFrameControl(item->hDC, &checkbox, DFC_BUTTON,
+                     DFCS_BUTTONCHECK | (checkedHistory.count(d.id) ? DFCS_CHECKED : 0));
+    RECT text{r.left + scale(34), r.top + scale(88), r.right - scale(8), r.bottom - scale(3)};
+    std::wstring label = std::to_wstring(item->itemID + 1) + L" · " + std::to_wstring(d.width) + L" × " +
+                         std::to_wstring(d.height);
+    DrawTextW(item->hDC, label.c_str(), -1, &text, DT_SINGLELINE | DT_END_ELLIPSIS);
+    SelectObject(item->hDC, old);
+    if (item->itemState & ODS_FOCUS)
+        DrawFocusRect(item->hDC, &r);
+    // Paint after the thumbnail so the close affordance is always visible.
+    auto close = historyCloseRect(r, GetDpiForWindow(list));
+    HBRUSH closeBg = CreateSolidBrush(pressedClose == d.id ? RGB(254, 202, 202) : RGB(241, 245, 249));
+    FillRect(item->hDC, &close, closeBg);
+    DeleteObject(closeBg);
+    HPEN pen = CreatePen(PS_SOLID, 2, RGB(71, 85, 105));
+    auto oldPen = SelectObject(item->hDC, pen);
+    int inset = std::max(5, rw(close) / 3);
+    MoveToEx(item->hDC, close.left + inset, close.top + inset, nullptr);
+    LineTo(item->hDC, close.right - inset, close.bottom - inset);
+    MoveToEx(item->hDC, close.right - inset - 1, close.top + inset, nullptr);
+    LineTo(item->hDC, close.left + inset - 1, close.bottom - inset);
+    SelectObject(item->hDC, oldPen);
+    DeleteObject(pen);
+}
+RECT App::historyCloseRect(RECT row, UINT dpi) {
+    int size = MulDiv(24, dpi ? dpi : 96, 96), gap = MulDiv(4, dpi ? dpi : 96, 96);
+    return {row.right - gap - size, row.top + gap, row.right - gap, row.top + gap + size};
+}
+int App::historyCloseHit(POINT p) {
+    RECT client{};
+    GetClientRect(list, &client);
+    if (!inside(client, p))
+        return -1;
+    auto hit = (DWORD)SendMessageW(list, LB_ITEMFROMPOINT, 0, MAKELPARAM(p.x, p.y));
+    int index = LOWORD(hit);
+    if (HIWORD(hit) || index >= (int)store.docs.size())
+        return -1;
+    RECT row{};
+    if (SendMessageW(list, LB_GETITEMRECT, index, (LPARAM)&row) == LB_ERR)
+        return -1;
+    return inside(historyCloseRect(row, GetDpiForWindow(list)), p) ? index : -1;
+}
+void App::removeHistory(int index) {
+    finishText();
+    if (index < 0 || index >= (int)store.docs.size())
+        return;
+    auto id = store.docs[index].id;
+    bool removingCurrent = index == selected;
+    store.remove(index);
+    thumbs.erase(id);
+    if (removingCurrent) {
+        original.reset();
+        rendered.reset();
+        selectedObject = -1;
+        lastExport.clear();
+        selected = -1;
+        if (!store.docs.empty())
+            select(std::min(index, (int)store.docs.size() - 1));
+    } else if (index < selected)
+        --selected;
+    refreshList();
+    if (selected >= 0)
+        SendMessageW(list, LB_SETCURSEL, selected, 0);
+    InvalidateRect(canvas, nullptr, FALSE);
+    statusText(L"목록에서 제거했습니다. 직접 저장한 이미지 파일은 유지됩니다.");
+}
+LRESULT CALLBACK App::listProc(HWND h, UINT msg, WPARAM w, LPARAM l, UINT_PTR id, DWORD_PTR data) {
+    auto a = (App *)data;
+    try {
+        if (msg == WM_KEYDOWN && w == VK_SPACE) {
+            int index = (int)SendMessageW(h, LB_GETCURSEL, 0, 0);
+            a->checkHistory(index, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
+            return 0;
+        }
+        if (msg == WM_LBUTTONUP && a->swallowListUp) {
+            a->swallowListUp = false;
+            return 0;
+        }
+        if (msg == WM_LBUTTONDOWN || msg == WM_LBUTTONDBLCLK) {
+            a->swallowListUp = false;
+            int index = a->historyCloseHit({GET_X_LPARAM(l), GET_Y_LPARAM(l)});
+            if (index >= 0) {
+                a->pressedClose = a->store.docs[index].id;
+                SetCapture(h);
+                InvalidateRect(h, nullptr, FALSE);
+                return 0;
+            }
+            POINT point{GET_X_LPARAM(l), GET_Y_LPARAM(l)};
+            index = a->historyItemAt(point);
+            if (index >= 0) {
+                bool range = (w & MK_SHIFT) || (GetKeyState(VK_SHIFT) & 0x8000);
+                bool checkbox = a->historyCheckHit(point) >= 0;
+                // Range checking uses the previous anchor before changing the active photo.
+                a->checkHistory(index, range);
+                if (!checkbox) {
+                    if (a->selected != index)
+                        a->select(index);
+                    SendMessageW(h, LB_SETCURSEL, index, 0);
+                    SetFocus(h);
+                }
+                a->swallowListUp = true;
+                return 0;
+            }
+        } else if (msg == WM_LBUTTONUP && !a->pressedClose.empty()) {
+            int index = a->historyCloseHit({GET_X_LPARAM(l), GET_Y_LPARAM(l)});
+            auto pressed = std::move(a->pressedClose);
+            a->pressedClose.clear();
+            ReleaseCapture();
+            if (index >= 0 && a->store.docs[index].id == pressed)
+                a->removeHistory(index);
+            InvalidateRect(h, nullptr, FALSE);
+            return 0;
+        } else if (msg == WM_CAPTURECHANGED || msg == WM_CANCELMODE) {
+            a->pressedClose.clear();
+            InvalidateRect(h, nullptr, FALSE);
+        } else if (msg == WM_NCDESTROY)
+            RemoveWindowSubclass(h, listProc, id);
+    } catch (const std::exception &e) {
+        a->pressedClose.clear();
+        ReleaseCapture();
+        a->report(e);
+    }
+    return DefSubclassProc(h, msg, w, l);
+}
+void App::canvasDown(POINT p) {
+    if (!doc() || !rendered)
+        return;
+    finishText();
+    if (!testMode)
+        SetFocus(canvas);
+    if (GetKeyState(VK_SPACE) & 0x8000) {
+        panning = true;
+        dragOrigin = p;
+        panOrigin = {panX, panY};
+        SetCapture(canvas);
+        return;
+    }
+    if (!inside(imageBounds(), p))
+        return;
+    POINT q = toImage(p);
+    if (tool == Tool::Select) {
+        statusText(L"드래그: 이동 · Shift+드래그 또는 오른쪽 아래 모서리: 크기 · 더블클릭: 텍스트 수정");
+        selectedObject = -1;
+        auto hidden = erased(*doc());
+        for (int i = (int)doc()->cursor - 1; i >= 0; i--) {
+            auto &c = doc()->commands[i];
+            RECT hit = c.rect;
+            InflateRect(&hit, 8, 8);
+            if (!hidden[i] && c.tool != Tool::Crop && c.tool != Tool::Erase && c.tool != Tool::Reset &&
+                inside(hit, q)) {
+                draft = c;
+                draft.target = i;
+                selectedObject = i;
+                resizing = (GetKeyState(VK_SHIFT) & 0x8000) ||
+                           (std::abs(q.x - c.rect.right) < 10 && std::abs(q.y - c.rect.bottom) < 10);
+                start = q;
+                dragging = true;
+                SetCapture(canvas);
+                break;
+            }
+        }
+        InvalidateRect(canvas, nullptr, FALSE);
+        return;
+    }
+    if (tool == Tool::Erase) {
+        eraseAt(q);
+        return;
+    }
+    draft = {};
+    draft.tool = tool;
+    draft.color = color;
+    draft.width = tool == Tool::Mosaic ? std::max(8.f, stroke * 4) : stroke;
+    draft.fill = fill;
+    draft.font = fontName;
+    draft.fontSize = fontSize;
+    draft.fontStyle = textStyle;
+    draft.rect = {q.x, q.y, q.x, q.y};
+    draft.points = {q};
+    start = q;
+    dragging = true;
+    SetCapture(canvas);
+}
+void App::canvasMove(POINT p) {
+    canvasMouse = p;
+    if (!testMode && GetCapture() == canvas)
+        SetCursor(canvasCursor(GetDpiForWindow(canvas)));
+    if (panning) {
+        panX = panOrigin.x + p.x - dragOrigin.x;
+        panY = panOrigin.y + p.y - dragOrigin.y;
+        InvalidateRect(canvas, nullptr, FALSE);
+        return;
+    }
+    if (!dragging)
+        return;
+    POINT q = toImage(p);
+    auto vr = viewRect(*doc());
+    q.x = std::clamp(q.x, vr.left, vr.right);
+    q.y = std::clamp(q.y, vr.top, vr.bottom);
+    if (tool == Tool::Select) {
+        auto &c = doc()->commands[draft.target];
+        draft = c;
+        draft.target = (int)(&c - doc()->commands.data());
+        if (resizing) {
+            draft.rect.right = std::max(draft.rect.left + 1, q.x);
+            draft.rect.bottom = std::max(draft.rect.top + 1, q.y);
+            float sx = rw(draft.rect) / (float)std::max(1, rw(c.rect));
+            float sy = rh(draft.rect) / (float)std::max(1, rh(c.rect));
+            for (auto &pt : draft.points) {
+                pt.x = c.rect.left + (pt.x - c.rect.left) * sx;
+                pt.y = c.rect.top + (pt.y - c.rect.top) * sy;
+            }
+            if (draft.tool == Tool::Text)
+                draft.fontSize = std::clamp(c.fontSize * sy, 1.f, 200.f);
+        } else {
+            OffsetRect(&draft.rect, q.x - start.x, q.y - start.y);
+            for (auto &pt : draft.points) {
+                pt.x += q.x - start.x;
+                pt.y += q.y - start.y;
+            }
+        }
+    } else {
+        if (tool == Tool::Pen) {
+            draft.rect.left = std::min(draft.rect.left, q.x);
+            draft.rect.top = std::min(draft.rect.top, q.y);
+            draft.rect.right = std::max(draft.rect.right, q.x);
+            draft.rect.bottom = std::max(draft.rect.bottom, q.y);
+            draft.points.push_back(q);
+        } else {
+            draft.rect = normalized(start, q);
+            draft.points = {start, q};
+        }
+    }
+    InvalidateRect(canvas, nullptr, FALSE);
+}
+void App::canvasUp(POINT p) {
+    if (panning) {
+        panning = false;
+        ReleaseCapture();
+        return;
+    }
+    if (!dragging)
+        return;
+    canvasMove(p);
+    dragging = false;
+    ReleaseCapture();
+    if (tool == Tool::Text)
+        startText(draft);
+    else if (tool == Tool::Select)
+        edit(draft);
+    else if (tool == Tool::Pen || tool == Tool::Line || tool == Tool::Arrow ||
+             (rw(draft.rect) > 0 && rh(draft.rect) > 0))
+        edit(draft);
+    InvalidateRect(canvas, nullptr, FALSE);
+    updateTitle();
+}
+void App::deleteObject() {
+    if (!doc() || selectedObject < 0 || selectedObject >= (int)doc()->cursor)
+        return;
+    Command erase;
+    erase.tool = Tool::Erase;
+    erase.target = selectedObject;
+    edit(erase);
+    selectedObject = -1;
+}
+void App::duplicateObject() {
+    if (!doc() || selectedObject < 0 || selectedObject >= (int)doc()->cursor)
+        return;
+    auto c = doc()->commands[selectedObject];
+    c.target = -1;
+    OffsetRect(&c.rect, 16, 16);
+    for (auto &p : c.points) {
+        p.x += 16;
+        p.y += 16;
+    }
+    edit(c);
+}
+void App::editText() {
+    if (!doc() || selectedObject < 0 || selectedObject >= (int)doc()->cursor)
+        return;
+    auto c = doc()->commands[selectedObject];
+    if (c.tool != Tool::Text)
+        return;
+    c.target = selectedObject;
+    startText(std::move(c));
+}
+void App::eraseAt(POINT p) {
+    auto skip = erased(*doc());
+    for (int i = (int)doc()->cursor - 1; i >= 0; i--) {
+        auto &c = doc()->commands[i];
+        if (c.tool == Tool::Crop || c.tool == Tool::Erase || c.tool == Tool::Reset || skip[i])
+            continue;
+        RECT hit = c.rect;
+        InflateRect(&hit, 10, 10);
+        if (inside(hit, p)) {
+            Command erase;
+            erase.tool = Tool::Erase;
+            erase.target = i;
+            edit(erase);
+            return;
+        }
+    }
+}
+void App::deleteSelected() {
+    deleteCheckedHistory();
+}
+void App::copy() {
+    if (!doc() || !original)
+        return;
+    auto image = output(*original, *doc());
+    const int w = image->GetWidth(), h = image->GetHeight();
+    uint64_t size = sizeof(BITMAPV5HEADER) + (uint64_t)w * h * 4;
+    require(size < 1024ull * 1024 * 1024, "clipboard image too large");
+    HGLOBAL block = GlobalAlloc(GMEM_MOVEABLE, size);
+    require(block != nullptr, "clipboard allocation failed");
+    auto head = (BITMAPV5HEADER *)GlobalLock(block);
+    if (!head) {
+        GlobalFree(block);
+        throw std::runtime_error("clipboard lock failed");
+    }
+    *head = {};
+    head->bV5Size = sizeof(*head);
+    head->bV5Width = w;
+    head->bV5Height = -h;
+    head->bV5Planes = 1;
+    head->bV5BitCount = 32;
+    head->bV5Compression = BI_BITFIELDS;
+    head->bV5RedMask = 0x00ff0000;
+    head->bV5GreenMask = 0x0000ff00;
+    head->bV5BlueMask = 0x000000ff;
+    head->bV5AlphaMask = 0xff000000;
+    head->bV5CSType = 0x73524742;
+    Gdiplus::BitmapData bd{};
+    Gdiplus::Rect r(0, 0, w, h);
+    if (image->LockBits(&r, Gdiplus::ImageLockModeRead, PixelFormat32bppARGB, &bd) != Gdiplus::Ok) {
+        GlobalUnlock(block);
+        GlobalFree(block);
+        throw std::runtime_error("clipboard pixels unavailable");
+    }
+    for (int y = 0; y < h; y++)
+        memcpy((BYTE *)(head + 1) + (size_t)y * w * 4, (BYTE *)bd.Scan0 + y * bd.Stride, w * 4);
+    image->UnlockBits(&bd);
+    if (testMode && clipboardVerifier) {
+        try {
+            clipboardVerifier(*head, (const BYTE *)(head + 1));
+        } catch (...) {
+            GlobalUnlock(block);
+            GlobalFree(block);
+            throw;
+        }
+        GlobalUnlock(block);
+        GlobalFree(block);
+        return;
+    }
+    GlobalUnlock(block);
+    if (!OpenClipboard(main)) {
+        GlobalFree(block);
+        statusText(L"클립보드를 다른 앱이 사용 중입니다. 잠시 후 다시 복사하세요.");
+        return;
+    }
+    EmptyClipboard();
+    if (!SetClipboardData(CF_DIBV5, block)) {
+        CloseClipboard();
+        GlobalFree(block);
+        throw std::runtime_error("clipboard transfer failed");
+    }
+    HBITMAP compatible = nullptr;
+    if (image->GetHBITMAP(Color::White, &compatible) == Gdiplus::Ok && compatible)
+        if (!SetClipboardData(CF_BITMAP, compatible))
+            DeleteObject(compatible);
+    CloseClipboard();
+    statusText(L"편집 결과를 복사했습니다. Ctrl + V 로 붙여넣으세요.");
+}
+static std::wstring saveDialog(HWND owner, const std::wstring &proposed) {
+    wchar_t path[32768]{};
+    auto initial =
+        fs::exists(fs::path(proposed).parent_path()) ? fs::path(proposed) : fs::path(proposed).filename();
+    wcsncpy_s(path, initial.c_str(), _TRUNCATE);
+    OPENFILENAMEW ofn{sizeof(ofn)};
+    ofn.hwndOwner = owner;
+    ofn.lpstrFilter = L"PNG 이미지 (*.png)\0*.png\0JPEG 이미지 (*.jpg)\0*.jpg\0비트맵 (*.bmp)\0*.bmp\0GIF "
+                      L"이미지 (*.gif)\0*.gif\0TIFF 이미지 (*.tiff)\0*.tiff\0\0";
+    ofn.lpstrFile = path;
+    ofn.nMaxFile = 32768;
+    auto ext = fs::path(proposed).extension().wstring();
+    for (int i = 0; i < 5; i++)
+        if (ext == imageExtension(i))
+            ofn.nFilterIndex = i + 1;
+    ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    ofn.lpstrDefExt = L"png";
+    if (!GetSaveFileNameW(&ofn))
+        return L"";
+    fs::path result = path;
+    result.replace_extension(imageExtension((int)ofn.nFilterIndex - 1));
+    if (result != fs::path(path) && fs::exists(result) &&
+        MessageBoxW(owner, L"선택한 형식의 파일이 이미 있습니다. 덮어쓸까요?", AppName,
+                    MB_YESNO | MB_ICONQUESTION) != IDYES)
+        return L"";
+    return result.wstring();
+}
+void App::save(bool saveAs) {
+    finishText();
+    if (!doc() || !original)
+        return;
+    (void)saveAs;
+    auto proposed = lastExport.empty() ? exportPath(store.settings) : lastExport;
+    fs::path target = (testMode && savePathPicker) ? savePathPicker(proposed.wstring())
+                                                   : saveDialog(main, proposed.wstring());
+    if (target.empty())
+        return;
+    auto image = output(*original, *doc());
+    saveImage(*image, target, store.settings.jpeg);
+    lastExport = target;
+    statusText(L"저장 완료: " + target.wstring());
+}
+void App::print() {
+    if (!doc() || !original)
+        return;
+    PRINTDLGW pd{sizeof(pd)};
+    pd.hwndOwner = main;
+    pd.Flags = PD_RETURNDC | PD_NOSELECTION | PD_NOPAGENUMS | PD_USEDEVMODECOPIESANDCOLLATE;
+    if (!PrintDlgW(&pd))
+        return;
+    auto image = output(*original, *doc());
+    DOCINFOW di{sizeof(di)};
+    di.lpszDocName = L"LightCapture";
+    if (StartDocW(pd.hDC, &di) > 0) {
+        StartPage(pd.hDC);
+        {
+            Graphics g(pd.hDC);
+            int w = GetDeviceCaps(pd.hDC, HORZRES), h = GetDeviceCaps(pd.hDC, VERTRES);
+            float ratio = std::min((float)w / image->GetWidth(), (float)h / image->GetHeight());
+            int iw = image->GetWidth() * ratio, ih = image->GetHeight() * ratio;
+            g.DrawImage(image.get(), (w - iw) / 2, (h - ih) / 2, iw, ih);
+        }
+        EndPage(pd.hDC);
+        EndDoc(pd.hDC);
+    }
+    DeleteDC(pd.hDC);
+    if (pd.hDevMode)
+        GlobalFree(pd.hDevMode);
+    if (pd.hDevNames)
+        GlobalFree(pd.hDevNames);
+}
+void App::open() {
+    wchar_t path[32768]{};
+    OPENFILENAMEW ofn{sizeof(ofn)};
+    ofn.hwndOwner = main;
+    ofn.lpstrFilter = L"이미지\0*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff\0\0";
+    ofn.lpstrFile = path;
+    ofn.nMaxFile = 32768;
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
+    if (GetOpenFileNameW(&ofn))
+        add(loadImage(path));
+}
+LRESULT CALLBACK App::canvasProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    auto a = (App *)GetWindowLongPtrW(h, GWLP_USERDATA);
+    if (m == WM_NCCREATE) {
+        a = (App *)((CREATESTRUCT *)l)->lpCreateParams;
+        SetWindowLongPtrW(h, GWLP_USERDATA, (LONG_PTR)a);
+    }
+    if (!a)
+        return DefWindowProcW(h, m, w, l);
+    try {
+        switch (m) {
+        case WM_CTLCOLOREDIT:
+            if ((HWND)l == a->textInput && a->textBrush) {
+                SetBkMode((HDC)w, TRANSPARENT);
+                SetTextColor((HDC)w, RGB((a->textDraft.color >> 16) & 255, (a->textDraft.color >> 8) & 255,
+                                         a->textDraft.color & 255));
+                POINT origin{};
+                LPtoDP((HDC)w, &origin, 1);
+                SetBrushOrgEx((HDC)w, origin.x, origin.y, nullptr);
+                return (LRESULT)a->textBrush;
+            }
+            break;
+        case WM_COMMAND:
+            if ((HWND)l == a->textInput && HIWORD(w) == EN_CHANGE)
+                a->growText();
+            return 0;
+        case WM_ERASEBKGND:
+            return 1;
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC dc = BeginPaint(h, &ps);
+            a->paintCanvas(dc);
+            EndPaint(h, &ps);
+            return 0;
+        }
+        case WM_PRINTCLIENT:
+            a->paintCanvas((HDC)w);
+            return 0;
+        case WM_LBUTTONDBLCLK:
+            a->editText();
+            return 0;
+        case WM_LBUTTONDOWN:
+            a->canvasDown({GET_X_LPARAM(l), GET_Y_LPARAM(l)});
+            return 0;
+        case WM_MOUSEMOVE:
+            a->canvasMove({GET_X_LPARAM(l), GET_Y_LPARAM(l)});
+            return 0;
+        case WM_LBUTTONUP:
+            a->canvasUp({GET_X_LPARAM(l), GET_Y_LPARAM(l)});
+            return 0;
+        case WM_MBUTTONDOWN:
+            a->panning = true;
+            a->dragOrigin = {GET_X_LPARAM(l), GET_Y_LPARAM(l)};
+            a->panOrigin = {a->panX, a->panY};
+            SetCapture(h);
+            return 0;
+        case WM_MBUTTONUP:
+            a->panning = false;
+            ReleaseCapture();
+            return 0;
+        case WM_MOUSEWHEEL:
+            a->finishText();
+            if (GET_KEYSTATE_WPARAM(w) & MK_CONTROL)
+                a->setZoom(a->zoom * (GET_WHEEL_DELTA_WPARAM(w) > 0 ? 1.2f : 1 / 1.2f));
+            else {
+                if (GET_KEYSTATE_WPARAM(w) & MK_SHIFT)
+                    a->panX += GET_WHEEL_DELTA_WPARAM(w) / 2;
+                else
+                    a->panY += GET_WHEEL_DELTA_WPARAM(w) / 2;
+                InvalidateRect(h, nullptr, FALSE);
+            }
+            return 0;
+        case WM_KEYDOWN:
+            if (w == VK_ESCAPE) {
+                a->dragging = false;
+                a->panning = false;
+                ReleaseCapture();
+                InvalidateRect(h, nullptr, FALSE);
+            }
+            return 0;
+        case WM_SIZE:
+            a->positionText();
+            InvalidateRect(h, nullptr, FALSE);
+            return 0;
+        case WM_SETCURSOR:
+            GetCursorPos(&a->canvasMouse);
+            ScreenToClient(h, &a->canvasMouse);
+            SetCursor(a->canvasCursor(GetDpiForWindow(h)));
+            return TRUE;
+        }
+    } catch (const std::exception &e) {
+        a->dragging = false;
+        ReleaseCapture();
+        a->report(e);
+    }
+    return DefWindowProcW(h, m, w, l);
+}
+} // namespace lc

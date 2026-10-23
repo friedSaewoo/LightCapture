@@ -1,0 +1,27 @@
+#include <windows.h>
+1 RT_MANIFEST "app.manifest"
+2 ICON "app.ico"
+3 CURSOR "pen.cur"
+4 CURSOR "eraser.cur"
+5 CURSOR "marker.cur"
+6 CURSOR "mosaic.cur"
+1 VERSIONINFO
+ FILEVERSION 0,1,11,0
+ PRODUCTVERSION 0,1,11,0
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+BEGIN
+ BLOCK "StringFileInfo"
+ BEGIN
+  BLOCK "041204b0"
+  BEGIN
+   VALUE "FileDescription", "LightCapture Windows 캡처 도구\0"
+   VALUE "ProductName", "LightCapture\0"
+   VALUE "ProductVersion", "0.1.11\0"
+  END
+ END
+ BLOCK "VarFileInfo"
+ BEGIN
+  VALUE "Translation", 0x412, 1200
+ END
+END
