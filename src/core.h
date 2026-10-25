@@ -32,7 +32,7 @@ using Gdiplus::Color;
 using Gdiplus::Graphics;
 using Image = std::unique_ptr<Bitmap>;
 inline const wchar_t *AppName = L"LightCapture";
-inline const wchar_t *Version = L"0.1.11";
+inline const wchar_t *Version = L"0.1.12";
 inline RECT normalized(POINT a, POINT b) {
     return {std::min(a.x, b.x), std::min(a.y, b.y), std::max(a.x, b.x), std::max(a.y, b.y)};
 }
@@ -146,28 +146,45 @@ inline Image loadImage(const fs::path &p) {
 inline Image clone(Bitmap &b) {
     return Image(b.Clone(0, 0, b.GetWidth(), b.GetHeight(), PixelFormat32bppARGB));
 }
-inline Image grab(RECT r, bool cursor = false) {
+inline Image grabFromDC(HDC source, RECT r, bool cursor = false) {
     require(rw(r) > 0 && rh(r) > 0, "empty capture");
     require((uint64_t)rw(r) * rh(r) * 4 <= 512ull * 1024 * 1024, "screen exceeds 512 MiB capture limit");
-    HDC screen = GetDC(nullptr), mem = CreateCompatibleDC(screen);
-    HBITMAP hb = CreateCompatibleBitmap(screen, rw(r), rh(r));
-    if (!screen || !mem || !hb) {
-        if (hb)
-            DeleteObject(hb);
-        if (mem)
-            DeleteDC(mem);
-        if (screen)
-            ReleaseDC(nullptr, screen);
-        throw std::runtime_error("screen buffer allocation failed");
-    }
-    HGDIOBJ old = SelectObject(mem, hb);
-    BOOL ok = BitBlt(mem, 0, 0, rw(r), rh(r), screen, r.left, r.top, SRCCOPY | CAPTUREBLT);
+    require(source != nullptr, "capture source unavailable");
+    struct CaptureBuffer {
+        HDC dc = nullptr;
+        HBITMAP bitmap = nullptr;
+        HGDIOBJ old = nullptr;
+        ~CaptureBuffer() {
+            if (old && old != HGDI_ERROR)
+                SelectObject(dc, old);
+            if (bitmap)
+                DeleteObject(bitmap);
+            if (dc)
+                DeleteDC(dc);
+        }
+    } buffer;
+    BITMAPINFO info{};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = rw(r);
+    info.bmiHeader.biHeight = -rh(r);
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    BYTE *pixels = nullptr;
+    buffer.dc = CreateCompatibleDC(source);
+    require(buffer.dc != nullptr, "capture device context allocation failed");
+    buffer.bitmap = CreateDIBSection(source, &info, DIB_RGB_COLORS, (void **)&pixels, nullptr, 0);
+    require(buffer.bitmap && pixels, "capture pixel buffer allocation failed");
+    buffer.old = SelectObject(buffer.dc, buffer.bitmap);
+    require(buffer.old && buffer.old != HGDI_ERROR, "capture pixel buffer selection failed");
+    require(BitBlt(buffer.dc, 0, 0, rw(r), rh(r), source, r.left, r.top, SRCCOPY | CAPTUREBLT) != FALSE,
+            "screen pixel transfer failed");
     if (cursor) {
         CURSORINFO ci{sizeof(ci)};
         if (GetCursorInfo(&ci) && ci.flags == CURSOR_SHOWING) {
             ICONINFO ii{};
             if (GetIconInfo(ci.hCursor, &ii)) {
-                DrawIconEx(mem, ci.ptScreenPos.x - r.left - ii.xHotspot,
+                DrawIconEx(buffer.dc, ci.ptScreenPos.x - r.left - ii.xHotspot,
                            ci.ptScreenPos.y - r.top - ii.yHotspot, ci.hCursor, 0, 0, 0, nullptr, DI_NORMAL);
                 DeleteObject(ii.hbmMask);
                 if (ii.hbmColor)
@@ -175,16 +192,33 @@ inline Image grab(RECT r, bool cursor = false) {
             }
         }
     }
-    SelectObject(mem, old);
-    auto temp = Image(Bitmap::FromHBITMAP(hb, nullptr));
-    Image result;
-    if (ok && temp)
-        result = clone(*temp);
-    DeleteObject(hb);
-    DeleteDC(mem);
-    ReleaseDC(nullptr, screen);
-    require(result != nullptr, "screen capture failed");
+    require(GdiFlush() != FALSE, "capture pixel flush failed");
+    auto result = std::make_unique<Bitmap>(rw(r), rh(r), PixelFormat32bppARGB);
+    require(result->GetLastStatus() == Gdiplus::Ok, "capture image allocation failed");
+    Gdiplus::BitmapData data{};
+    Gdiplus::Rect area(0, 0, rw(r), rh(r));
+    require(result->LockBits(&area, Gdiplus::ImageLockModeWrite, PixelFormat32bppARGB, &data) == Gdiplus::Ok,
+            "capture image lock failed");
+    for (int y = 0; y < rh(r); ++y) {
+        auto row = (BYTE *)data.Scan0 + (ptrdiff_t)y * data.Stride;
+        memcpy(row, pixels + (size_t)y * rw(r) * 4, (size_t)rw(r) * 4);
+        for (int x = 0; x < rw(r); ++x)
+            row[(size_t)x * 4 + 3] = 255;
+    }
+    result->UnlockBits(&data);
     return result;
+}
+inline Image grab(RECT r, bool cursor = false) {
+    HDC source = GetDC(nullptr);
+    require(source != nullptr, "screen device context unavailable");
+    try {
+        auto image = grabFromDC(source, r, cursor);
+        ReleaseDC(nullptr, source);
+        return image;
+    } catch (...) {
+        ReleaseDC(nullptr, source);
+        throw;
+    }
 }
 inline Image crop(Bitmap &b, RECT r) {
     r = bounded(r, {0, 0, (LONG)b.GetWidth(), (LONG)b.GetHeight()});

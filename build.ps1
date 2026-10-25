@@ -1,4 +1,4 @@
-param([string]$Toolchain = '',[switch]$DebugBuild,[string]$OutputName = 'LightCapture.exe')
+﻿param([string]$Toolchain = '',[switch]$DebugBuild,[string]$OutputName = 'LightCapture.exe')
 $ErrorActionPreference='Stop'
 $projectRoot=$PSScriptRoot
 if([IO.Path]::GetFileName($OutputName) -ne $OutputName -or -not $OutputName.EndsWith('.exe')){throw 'OutputName에는 exe 파일명만 지정하세요.'}
@@ -18,11 +18,13 @@ try{
  & (Join-Path $Toolchain 'windres.exe') '--codepage=65001' 'app.rc' '-o' (Join-Path $buildDir 'app.o')
  if($LASTEXITCODE -ne 0){throw '리소스 빌드 실패'}
  $optimization=if($DebugBuild){'-O0'}else{'-O2'}
- & $compiler '-std=c++17' $optimization '-Wall' '-Wextra' '-Wno-missing-field-initializers' '-municode' '-mwindows' '-static' '-static-libgcc' '-static-libstdc++' 'app.cpp' 'editor.cpp' 'toolbar.cpp' 'history.cpp' 'inline-text.cpp' 'quick-bar.cpp' 'capture.cpp' 'overlay.cpp' 'store.cpp' 'verify.cpp' 'verify-editor.cpp' 'verify-history.cpp' (Join-Path $buildDir 'app.o') '-o' (Join-Path $projectRoot $OutputName) '-lgdiplus' '-lcomctl32' '-lcomdlg32' '-lshell32' '-lole32' '-luuid' '-ldwmapi' '-lpsapi' '-lshlwapi' '-limm32'
+ & $compiler '-std=c++17' $optimization '-Wall' '-Wextra' '-Wno-missing-field-initializers' '-municode' '-mwindows' '-static' '-static-libgcc' '-static-libstdc++' 'app.cpp' 'clipboard.cpp' 'editor.cpp' 'toolbar.cpp' 'history.cpp' 'inline-text.cpp' 'quick-bar.cpp' 'capture.cpp' 'overlay.cpp' 'store.cpp' 'verify.cpp' 'verify-editor.cpp' 'verify-history.cpp' (Join-Path $buildDir 'app.o') '-o' (Join-Path $projectRoot $OutputName) '-lgdiplus' '-lcomctl32' '-lcomdlg32' '-lshell32' '-lole32' '-luuid' '-ldwmapi' '-lpsapi' '-lshlwapi' '-limm32'
  if($LASTEXITCODE -ne 0){throw '앱 빌드 실패'}
  if(-not $DebugBuild){ & (Join-Path $Toolchain 'strip.exe') '--strip-all' (Join-Path $projectRoot $OutputName); if($LASTEXITCODE -ne 0){throw '실행 파일 정리 실패'} }
  & $compiler '-std=c++17' '-O2' '-municode' '-static' 'tests.cpp' 'store.cpp' '-o' (Join-Path $buildDir 'LightCaptureTests.exe') '-lgdi32' '-lgdiplus' '-lcomctl32' '-lcomdlg32' '-lshell32' '-lole32' '-luuid' '-ldwmapi' '-lpsapi'
  if($LASTEXITCODE -ne 0){throw '테스트 빌드 실패'}
  & $compiler '-std=c++17' '-O2' '-municode' '-static' 'overlay-tests.cpp' 'overlay.cpp' 'store.cpp' '-o' (Join-Path $buildDir 'OverlayTests.exe') '-lgdi32' '-lgdiplus' '-lcomctl32' '-lcomdlg32' '-lshell32' '-lole32' '-luuid' '-ldwmapi' '-lpsapi'
  if($LASTEXITCODE -ne 0){throw '영역 선택 렌더링 테스트 빌드 실패'}
+ & $compiler '-std=c++17' '-O2' '-municode' '-static' 'clipboard-tests.cpp' 'clipboard.cpp' '-o' (Join-Path $buildDir 'ClipboardTests.exe') '-lgdi32' '-lgdiplus' '-lcomctl32' '-lcomdlg32' '-lshell32' '-lole32' '-luuid' '-ldwmapi' '-lpsapi'
+ if($LASTEXITCODE -ne 0){throw '클립보드 시험 빌드 실패'}
 }finally{Pop-Location;$env:PATH=$oldPath}

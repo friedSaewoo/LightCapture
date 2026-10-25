@@ -9,6 +9,8 @@ $testExe=Join-Path $projectRoot 'build\LightCaptureTests.exe'
 if(-not (Test-Path -LiteralPath $testExe)){throw 'build.ps1을 먼저 실행해야 합니다.'}
 & $testExe (Join-Path $EvidenceDirectory 'core-data') | Set-Content -LiteralPath (Join-Path $EvidenceDirectory 'core-tests.txt') -Encoding utf8
 if($LASTEXITCODE -ne 0){throw '핵심 자동 시험 실패'}
+& (Join-Path $projectRoot 'build\ClipboardTests.exe') | Set-Content -LiteralPath (Join-Path $EvidenceDirectory 'clipboard-tests.txt') -Encoding utf8
+if($LASTEXITCODE -ne 0){throw '클립보드 이미지 형식 시험 실패'}
 & (Join-Path $projectRoot 'build\OverlayTests.exe') (Join-Path $EvidenceDirectory 'overlay-data') | Set-Content -LiteralPath (Join-Path $EvidenceDirectory 'overlay-tests.txt') -Encoding utf8
 if($LASTEXITCODE -ne 0){throw '영역 선택 렌더링 시험 실패'}
 $verifyData=Join-Path $EvidenceDirectory 'app-data'

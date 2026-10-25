@@ -1,5 +1,6 @@
 #pragma once
 #include "core.h"
+#include "clipboard.h"
 #include "overlay.h"
 #include <functional>
 #include <map>
@@ -102,7 +103,7 @@ class App {
     std::function<fs::path()> batchFolderPicker;
     std::function<bool(size_t)> historyDeleteConfirm;
     fs::path lastSaveFolder;
-    std::function<void(const BITMAPV5HEADER &, const BYTE *)> clipboardVerifier;
+    std::function<void(const ClipboardImage &)> clipboardVerifier;
     std::map<std::wstring, Image> thumbs;
     fs::path lastExport;
     Tool tool = Tool::Pen;

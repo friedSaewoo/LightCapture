@@ -571,71 +571,25 @@ void App::deleteSelected() {
     deleteCheckedHistory();
 }
 void App::copy() {
-    if (!doc() || !original)
+    finishText();
+    if (!doc()) {
+        statusText(L"복사할 캡처가 없습니다.");
         return;
+    }
+    if (!original)
+        select(selected);
     auto image = output(*original, *doc());
-    const int w = image->GetWidth(), h = image->GetHeight();
-    uint64_t size = sizeof(BITMAPV5HEADER) + (uint64_t)w * h * 4;
-    require(size < 1024ull * 1024 * 1024, "clipboard image too large");
-    HGLOBAL block = GlobalAlloc(GMEM_MOVEABLE, size);
-    require(block != nullptr, "clipboard allocation failed");
-    auto head = (BITMAPV5HEADER *)GlobalLock(block);
-    if (!head) {
-        GlobalFree(block);
-        throw std::runtime_error("clipboard lock failed");
-    }
-    *head = {};
-    head->bV5Size = sizeof(*head);
-    head->bV5Width = w;
-    head->bV5Height = -h;
-    head->bV5Planes = 1;
-    head->bV5BitCount = 32;
-    head->bV5Compression = BI_BITFIELDS;
-    head->bV5RedMask = 0x00ff0000;
-    head->bV5GreenMask = 0x0000ff00;
-    head->bV5BlueMask = 0x000000ff;
-    head->bV5AlphaMask = 0xff000000;
-    head->bV5CSType = 0x73524742;
-    Gdiplus::BitmapData bd{};
-    Gdiplus::Rect r(0, 0, w, h);
-    if (image->LockBits(&r, Gdiplus::ImageLockModeRead, PixelFormat32bppARGB, &bd) != Gdiplus::Ok) {
-        GlobalUnlock(block);
-        GlobalFree(block);
-        throw std::runtime_error("clipboard pixels unavailable");
-    }
-    for (int y = 0; y < h; y++)
-        memcpy((BYTE *)(head + 1) + (size_t)y * w * 4, (BYTE *)bd.Scan0 + y * bd.Stride, w * 4);
-    image->UnlockBits(&bd);
-    if (testMode && clipboardVerifier) {
-        try {
-            clipboardVerifier(*head, (const BYTE *)(head + 1));
-        } catch (...) {
-            GlobalUnlock(block);
-            GlobalFree(block);
-            throw;
-        }
-        GlobalUnlock(block);
-        GlobalFree(block);
+    auto formats = makeClipboardImage(*image);
+    if (testMode) {
+        require((bool)clipboardVerifier, "clipboard test verifier missing");
+        clipboardVerifier(formats);
         return;
     }
-    GlobalUnlock(block);
-    if (!OpenClipboard(main)) {
-        GlobalFree(block);
-        statusText(L"클립보드를 다른 앱이 사용 중입니다. 잠시 후 다시 복사하세요.");
+    if (!publishClipboardImage(main, formats)) {
+        statusText(L"클립보드를 다른 앱이 사용 중입니다. 잠시 후 Ctrl+C를 다시 누르세요.");
         return;
     }
-    EmptyClipboard();
-    if (!SetClipboardData(CF_DIBV5, block)) {
-        CloseClipboard();
-        GlobalFree(block);
-        throw std::runtime_error("clipboard transfer failed");
-    }
-    HBITMAP compatible = nullptr;
-    if (image->GetHBITMAP(Color::White, &compatible) == Gdiplus::Ok && compatible)
-        if (!SetClipboardData(CF_BITMAP, compatible))
-            DeleteObject(compatible);
-    CloseClipboard();
-    statusText(L"편집 결과를 복사했습니다. Ctrl + V 로 붙여넣으세요.");
+    statusText(L"편집 결과를 복사했습니다. Ctrl+V로 붙여넣으세요.");
 }
 static std::wstring saveDialog(HWND owner, const std::wstring &proposed) {
     wchar_t path[32768]{};

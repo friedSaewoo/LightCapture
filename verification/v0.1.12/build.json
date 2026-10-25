@@ -1,0 +1,8 @@
+{
+  "Version": "0.1.12",
+  "ExecutableSHA256": "72a6147ca86cd14bdd13b8f73a623542575ff2c5de1ec2bc0f41f578c6668116",
+  "ExecutableBytes": 1831936,
+  "CoreChecksPassed": 49,
+  "ClipboardPixelChecksPassed": 11,
+  "AppRegressionPassed": true
+}

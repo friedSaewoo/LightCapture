@@ -116,7 +116,10 @@ void App::verifyHistory() {
     mark.rect = {0, 0, 20, 20};
     edit(mark);
     int copied = 0;
-    clipboardVerifier = [&](const BITMAPV5HEADER &header, const BYTE *pixels) {
+    clipboardVerifier = [&](const ClipboardImage &formats) {
+        auto header = *(const BITMAPV5HEADER *)formats.dibv5.data();
+        auto pixels = formats.dibv5.data() + sizeof(BITMAPV5HEADER);
+        require(!formats.png.empty() && !formats.dib.empty(), "copy compatibility formats missing");
         ++copied;
         require(header.bV5Width == 160 && header.bV5Height == -100 && header.bV5BitCount == 32 &&
                     header.bV5RedMask == 0x00ff0000 && header.bV5AlphaMask == 0xff000000,
