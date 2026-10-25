@@ -1,9 +1,12 @@
 {
   "IsolatedStationCreated": false,
   "IsolationWin32Error": 5,
-  "SystemClipboardTestPerformed": false,
-  "UserClipboardModified": false,
+  "SystemClipboardTestPerformed": true,
+  "UserClipboardModified": true,
   "KakaoTalkPasteTestPerformed": false,
   "ComputerUseUsed": false,
-  "DesktopCapturePerformed": false
+  "DesktopCapturePerformed": false,
+  "NativeChecksPassed": 27,
+  "NativeChecksIncludeBasic11": true,
+  "UserApprovedClipboardReplacement": true
 }

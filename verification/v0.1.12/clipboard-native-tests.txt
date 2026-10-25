@@ -1,0 +1,28 @@
+PASS clipboard test uses only a hidden own window
+PASS capture pixels survive GDI buffer destruction and zero source alpha
+PASS explicit DIB has standard 24-bit header and padded bottom-up rows
+PASS PNG decodes to original dimensions
+PASS DIBV5 supplies image size, color space and rendering intent
+PASS PNG, explicit DIB and DIBV5 match every pixel with opaque alpha
+PASS explicit DIB has standard 24-bit header and padded bottom-up rows
+PASS PNG decodes to original dimensions
+PASS DIBV5 supplies image size, color space and rendering intent
+PASS PNG, explicit DIB and DIBV5 match every pixel with opaque alpha
+PASS transparent and partial-alpha pixels are composited onto white consistently
+PASS real SetClipboardData publishes all formats
+PASS real clipboard can be reopened by consumer
+PASS real GetClipboardData returns explicit PNG and DIB bytes intact
+PASS Windows-synthesized CF_BITMAP consumer receives original color pixels
+PASS explicit DIB has standard 24-bit header and padded bottom-up rows
+PASS PNG decodes to original dimensions
+PASS DIBV5 supplies image size, color space and rendering intent
+PASS PNG, explicit DIB and DIBV5 match every pixel with opaque alpha
+PASS real SetClipboardData publishes all formats
+PASS real clipboard can be reopened by consumer
+PASS real GetClipboardData returns explicit PNG and DIB bytes intact
+PASS Windows-synthesized CF_BITMAP consumer receives original color pixels
+PASS explicit DIB has standard 24-bit header and padded bottom-up rows
+PASS PNG decodes to original dimensions
+PASS DIBV5 supplies image size, color space and rendering intent
+PASS PNG, explicit DIB and DIBV5 match every pixel with opaque alpha
+RESULT 27 passed, 0 failed; system clipboard contains synthetic test image
