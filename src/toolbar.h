@@ -12,7 +12,20 @@ inline constexpr PaletteColor Palette[] = {
     {0xffd6b38d, L"황갈색"}, {0xfff9a8d4, L"분홍"},   {0xfffdba74, L"살구"},      {0xfffef08a, L"연한 노랑"},
     {0xffa3e635, L"연두"},   {0xffa5f3fc, L"하늘색"}, {0xff93c5fd, L"연한 파랑"}, {0xffd8b4fe, L"연한 보라"}};
 inline constexpr int PaletteCount = sizeof(Palette) / sizeof(Palette[0]);
-inline constexpr const wchar_t *ToolNames[] = {L"선택 / 이동", L"펜",     L"직선",   L"화살표",
-                                               L"사각형",      L"타원",   L"형광펜", L"텍스트",
-                                               L"모자이크",    L"자르기", L"지우개"};
+inline constexpr const wchar_t *ToolNames[] = {L"개체 선택 / 이동",
+                                               L"펜",
+                                               L"직선",
+                                               L"화살표",
+                                               L"사각형",
+                                               L"타원",
+                                               L"형광펜",
+                                               L"텍스트",
+                                               L"모자이크",
+                                               L"자르기",
+                                               L"지우개",
+                                               L"",
+                                               L"사각형 선택 / 이동"};
+inline constexpr Tool ToolbarTools[] = {Tool::PixelSelect, Tool::Select,    Tool::Pen,     Tool::Line,
+                                        Tool::Arrow,       Tool::Rectangle, Tool::Ellipse, Tool::Highlight,
+                                        Tool::Text,        Tool::Mosaic,    Tool::Crop,    Tool::Erase};
 } // namespace lc

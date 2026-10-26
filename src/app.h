@@ -113,6 +113,10 @@ class App {
     int textStyle = 0;
     bool fill = false, dragging = false, resizing = false;
     Command draft;
+    bool pixelReady = false, pixelSelecting = false, pixelMoving = false;
+    RECT pixelRect{}, pixelSource{};
+    POINT pixelStart{};
+    Image pixelPatch, pixelBackdrop;
     float zoom = 1;
     int panX = 0, panY = 0;
     POINT mouse{}, start{}, dragOrigin{}, panOrigin{};
@@ -155,6 +159,12 @@ class App {
     void refreshToolbar();
     void setTool(Tool next);
     void setColor(uint32_t next);
+    void clearPixelSelection();
+    void pixelDown(POINT imagePoint);
+    void pixelMove(POINT imagePoint);
+    void pixelUp();
+    void paintPixelSelection(Graphics &g, RECT imageBounds, RECT view);
+    void verifyPixelSelection();
     void startText(Command command);
     void finishText(bool accept = true);
     void positionText();

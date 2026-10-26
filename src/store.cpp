@@ -60,7 +60,10 @@ void Store::loadSettings() {
     settings.external = ini(p, L"external");
     settings.confirmRegion = GetPrivateProfileIntW(L"LightCapture", L"confirmRegion", 0, p.c_str());
     settings.color = GetPrivateProfileIntW(L"LightCapture", L"color", 0xffe5484d, p.c_str());
-    settings.tool = std::clamp((int)GetPrivateProfileIntW(L"LightCapture", L"tool", 1, p.c_str()), 0, 10);
+    settings.tool = std::clamp((int)GetPrivateProfileIntW(L"LightCapture", L"tool", 1, p.c_str()), 0,
+                               (int)Tool::PixelSelect);
+    if (settings.tool == (int)Tool::Reset)
+        settings.tool = (int)Tool::Pen;
     settings.stroke = std::clamp((int)GetPrivateProfileIntW(L"LightCapture", L"stroke", 3, p.c_str()), 1, 80);
     settings.fontSize =
         std::clamp((int)GetPrivateProfileIntW(L"LightCapture", L"fontSize", 20, p.c_str()), 1, 200);
@@ -166,7 +169,7 @@ static Document readDocument(const fs::path &path) {
         int t;
         uint32_t fill, n;
         get(f, t);
-        require(t >= 0 && t <= (int)Tool::Reset, "invalid tool");
+        require(t >= 0 && t <= (int)Tool::PixelSelect, "invalid tool");
         c.tool = (Tool)t;
         get(f, c.color);
         get(f, c.width);
@@ -188,6 +191,15 @@ static Document readDocument(const fs::path &path) {
         c.points.resize(n);
         f.read((char *)c.points.data(), n * sizeof(POINT));
         require((bool)f, "truncated points");
+        if (c.tool == Tool::PixelSelect) {
+            require(c.points.size() == 1 && c.rect.left >= 0 && c.rect.top >= 0 &&
+                        c.rect.right > c.rect.left && c.rect.bottom > c.rect.top &&
+                        c.rect.right <= (LONG)d.width && c.rect.bottom <= (LONG)d.height &&
+                        c.points[0].x >= 0 && c.points[0].y >= 0 &&
+                        c.points[0].x <= (LONG)d.width - rw(c.rect) &&
+                        c.points[0].y <= (LONG)d.height - rh(c.rect),
+                    "invalid pixel selection move");
+        }
         d.commands.push_back(std::move(c));
     }
     return d;

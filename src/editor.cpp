@@ -3,6 +3,10 @@ namespace lc {
 HCURSOR App::canvasCursor(UINT dpi) {
     if (panning)
         return LoadCursor(nullptr, IDC_SIZEALL);
+    if (tool == Tool::PixelSelect)
+        return LoadCursor(nullptr, pixelMoving || (pixelReady && inside(pixelRect, toImage(canvasMouse)))
+                                       ? IDC_SIZEALL
+                                       : IDC_CROSS);
     if (tool == Tool::Text)
         return LoadCursor(nullptr, IDC_IBEAM);
     if (tool == Tool::Select) {
@@ -56,6 +60,7 @@ void App::select(int index) {
     finishText();
     if (index < 0 || index >= (int)store.docs.size())
         return;
+    clearPixelSelection();
     store.ensure(store.docs[index]);
     if (selected != index && doc()) {
         doc()->commands.clear();
@@ -109,6 +114,7 @@ void App::add(Image image) {
 void App::edit(Command c) {
     if (!doc())
         return;
+    clearPixelSelection();
     commit(*doc(), std::move(c));
     selectedObject = (int)doc()->cursor - 1;
     persist();
@@ -117,6 +123,7 @@ void App::edit(Command c) {
 void App::undo(bool redo) {
     if (!doc())
         return;
+    clearPixelSelection();
     if (redo) {
         if (doc()->cursor < doc()->commands.size())
             doc()->cursor++;
@@ -163,7 +170,9 @@ void App::paintCanvas(HDC dc) {
             g.FillRectangle(&white, b.left, b.top, rw(b), rh(b));
             g.SetInterpolationMode(zoom >= 1 ? Gdiplus::InterpolationModeNearestNeighbor
                                              : Gdiplus::InterpolationModeHighQualityBicubic);
-            g.DrawImage(textInput && textBackdrop ? textBackdrop.get() : rendered.get(),
+            g.DrawImage(pixelMoving && pixelBackdrop ? pixelBackdrop.get()
+                        : textInput && textBackdrop  ? textBackdrop.get()
+                                                     : rendered.get(),
                         Gdiplus::Rect(b.left, b.top, rw(b), rh(b)), r.left, r.top, rw(r), rh(r),
                         Gdiplus::UnitPixel);
             if (dragging) {
@@ -188,6 +197,7 @@ void App::paintCanvas(HDC dc) {
                 outline.SetDashStyle(Gdiplus::DashStyleDash);
                 g.DrawRectangle(&outline, (int)rect.left - 1, (int)rect.top - 1, rw(rect) + 1, rh(rect) + 1);
             }
+            paintPixelSelection(g, b, r);
             if (!dragging && tool == Tool::Select && selectedObject >= 0 &&
                 selectedObject < (int)doc()->cursor) {
                 auto q = doc()->commands[selectedObject].rect;
@@ -204,10 +214,11 @@ void App::paintCanvas(HDC dc) {
             SetTextColor(mem, RGB(56, 65, 80));
             SelectObject(mem, uiFont);
             RECT text{32, 65, rw(c) - 32, 180};
-            DrawTextW(mem,
-                      L"Ctrl + Shift + X 로 영역을 캡처하세요\n\n왼쪽 목록에서 이전 캡처를 선택하거나 파일을 "
-                      L"열 수 있습니다.",
-                      -1, &text, DT_CENTER | DT_WORDBREAK);
+            DrawTextW(
+                mem,
+                L"Ctrl + Shift + X 로 영역을 캡처하세요\n\n오른쪽 목록에서 이전 캡처를 선택하거나 파일을 "
+                L"열 수 있습니다.",
+                -1, &text, DT_CENTER | DT_WORDBREAK);
         }
     }
     BitBlt(dc, 0, 0, rw(c), rh(c), mem, 0, 0, SRCCOPY);
@@ -316,6 +327,7 @@ void App::removeHistory(int index) {
     store.remove(index);
     thumbs.erase(id);
     if (removingCurrent) {
+        clearPixelSelection();
         original.reset();
         rendered.reset();
         selectedObject = -1;
@@ -402,19 +414,28 @@ void App::canvasDown(POINT p) {
         SetCapture(canvas);
         return;
     }
-    if (!inside(imageBounds(), p))
+    if (!inside(imageBounds(), p)) {
+        if (tool == Tool::PixelSelect)
+            clearPixelSelection();
         return;
+    }
     POINT q = toImage(p);
+    if (tool == Tool::PixelSelect) {
+        pixelDown(q);
+        return;
+    }
     if (tool == Tool::Select) {
         statusText(L"드래그: 이동 · Shift+드래그 또는 오른쪽 아래 모서리: 크기 · 더블클릭: 텍스트 수정");
         selectedObject = -1;
         auto hidden = erased(*doc());
         for (int i = (int)doc()->cursor - 1; i >= 0; i--) {
             auto &c = doc()->commands[i];
+            if (!hidden[i] && c.tool == Tool::PixelSelect)
+                break; // Earlier annotations are now part of the raster edit.
             RECT hit = c.rect;
             InflateRect(&hit, 8, 8);
             if (!hidden[i] && c.tool != Tool::Crop && c.tool != Tool::Erase && c.tool != Tool::Reset &&
-                inside(hit, q)) {
+                c.tool != Tool::PixelSelect && inside(hit, q)) {
                 draft = c;
                 draft.target = i;
                 selectedObject = i;
@@ -455,6 +476,10 @@ void App::canvasMove(POINT p) {
         panX = panOrigin.x + p.x - dragOrigin.x;
         panY = panOrigin.y + p.y - dragOrigin.y;
         InvalidateRect(canvas, nullptr, FALSE);
+        return;
+    }
+    if (pixelSelecting || pixelMoving) {
+        pixelMove(toImage(p));
         return;
     }
     if (!dragging)
@@ -500,6 +525,11 @@ void App::canvasMove(POINT p) {
     InvalidateRect(canvas, nullptr, FALSE);
 }
 void App::canvasUp(POINT p) {
+    if (pixelSelecting || pixelMoving) {
+        pixelMove(toImage(p));
+        pixelUp();
+        return;
+    }
     if (panning) {
         panning = false;
         ReleaseCapture();
@@ -554,7 +584,10 @@ void App::eraseAt(POINT p) {
     auto skip = erased(*doc());
     for (int i = (int)doc()->cursor - 1; i >= 0; i--) {
         auto &c = doc()->commands[i];
-        if (c.tool == Tool::Crop || c.tool == Tool::Erase || c.tool == Tool::Reset || skip[i])
+        if (!skip[i] && c.tool == Tool::PixelSelect)
+            break;
+        if (c.tool == Tool::Crop || c.tool == Tool::Erase || c.tool == Tool::Reset ||
+            c.tool == Tool::PixelSelect || skip[i])
             continue;
         RECT hit = c.rect;
         InflateRect(&hit, 10, 10);
@@ -578,7 +611,8 @@ void App::copy() {
     }
     if (!original)
         select(selected);
-    auto image = output(*original, *doc());
+    auto image =
+        tool == Tool::PixelSelect && pixelReady ? crop(*rendered, pixelRect) : output(*original, *doc());
     auto formats = makeClipboardImage(*image);
     if (testMode) {
         require((bool)clipboardVerifier, "clipboard test verifier missing");
@@ -711,7 +745,10 @@ LRESULT CALLBACK App::canvasProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             a->paintCanvas((HDC)w);
             return 0;
         case WM_LBUTTONDBLCLK:
-            a->editText();
+            if (a->tool == Tool::PixelSelect)
+                a->canvasDown({GET_X_LPARAM(l), GET_Y_LPARAM(l)});
+            else
+                a->editText();
             return 0;
         case WM_LBUTTONDOWN:
             a->canvasDown({GET_X_LPARAM(l), GET_Y_LPARAM(l)});
@@ -746,11 +783,17 @@ LRESULT CALLBACK App::canvasProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             return 0;
         case WM_KEYDOWN:
             if (w == VK_ESCAPE) {
+                a->clearPixelSelection();
                 a->dragging = false;
                 a->panning = false;
                 ReleaseCapture();
                 InvalidateRect(h, nullptr, FALSE);
             }
+            return 0;
+        case WM_CANCELMODE:
+        case WM_CAPTURECHANGED:
+            if (a->pixelMoving || a->pixelSelecting)
+                a->clearPixelSelection();
             return 0;
         case WM_SIZE:
             a->positionText();

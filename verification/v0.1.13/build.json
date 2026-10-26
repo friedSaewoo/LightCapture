@@ -1,0 +1,11 @@
+{
+  "Version": "0.1.13",
+  "ExecutableSHA256": "459d9dc32a8f8a8c2309b324730d5ade8593f5594e4b5e92f6ea7aba38ab656c",
+  "ExecutableBytes": 1863680,
+  "CoreChecksPassed": 49,
+  "ClipboardPixelChecksPassed": 11,
+  "PixelSelectionChecksPassed": 21,
+  "ComputerUseUsed": false,
+  "DesktopCapturePerformed": false,
+  "SystemClipboardModified": false
+}

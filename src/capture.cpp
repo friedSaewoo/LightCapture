@@ -24,6 +24,7 @@ static BOOL CALLBACK enumTop(HWND h, LPARAM data) {
 }
 void App::begin(Mode m) {
     finishText();
+    clearPixelSelection();
     if (busy) {
         if (!overlay && !scrollBar) {
             cancelCapture();

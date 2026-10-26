@@ -143,6 +143,7 @@ void App::verify() {
     add(std::move(retainedFixture));
     verifyEditor();
     verifyHistory();
+    verifyPixelSelection();
     std::ofstream f(store.root / L"app-verification.json");
     f << "{\n  \"default_hotkey_available\": " << (defaultAvailable ? "true" : "false")
       << ",\n  \"temporary_hotkey_registered\": " << (alternate ? "true" : "false")

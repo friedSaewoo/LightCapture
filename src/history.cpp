@@ -224,6 +224,7 @@ void App::deleteCheckedHistory() {
         if (store.docs[i].id == active)
             selected = i;
     if (selected < 0) {
+        clearPixelSelection();
         original.reset();
         rendered.reset();
         selectedObject = -1;

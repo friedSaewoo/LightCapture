@@ -32,7 +32,7 @@ using Gdiplus::Color;
 using Gdiplus::Graphics;
 using Image = std::unique_ptr<Bitmap>;
 inline const wchar_t *AppName = L"LightCapture";
-inline const wchar_t *Version = L"0.1.12";
+inline const wchar_t *Version = L"0.1.13";
 inline RECT normalized(POINT a, POINT b) {
     return {std::min(a.x, b.x), std::min(a.y, b.y), std::max(a.x, b.x), std::max(a.y, b.y)};
 }
@@ -237,7 +237,8 @@ enum class Tool : int {
     Mosaic,
     Crop,
     Erase,
-    Reset
+    Reset,
+    PixelSelect
 };
 enum class Mode : int { Rectangle, Freeform, Window, Unit, Fullscreen, Scroll, Fixed };
 struct Command {
@@ -441,7 +442,20 @@ inline Image render(Bitmap &original, const Document &d) {
         auto &c = d.commands[i];
         if (skip[i] || c.tool == Tool::Crop || c.tool == Tool::Erase || c.tool == Tool::Reset)
             continue;
-        if (c.tool == Tool::Mosaic)
+        if (c.tool == Tool::PixelSelect && !c.points.empty()) {
+            auto source = bounded(c.rect, {0, 0, (LONG)out->GetWidth(), (LONG)out->GetHeight()});
+            if (rw(source) <= 0 || rh(source) <= 0)
+                continue;
+            auto patch = crop(*out, source); // Copy before clearing, including overlapping moves.
+            Graphics g(out.get());
+            g.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
+            Gdiplus::SolidBrush white(Color::White);
+            require(g.FillRectangle(&white, (int)source.left, (int)source.top, rw(source), rh(source)) ==
+                            Gdiplus::Ok &&
+                        g.DrawImage(patch.get(), (int)c.points[0].x, (int)c.points[0].y,
+                                    (int)patch->GetWidth(), (int)patch->GetHeight()) == Gdiplus::Ok,
+                    "selected pixel move failed");
+        } else if (c.tool == Tool::Mosaic)
             mosaic(*out, c.rect, (int)c.width);
         else {
             Graphics g(out.get());

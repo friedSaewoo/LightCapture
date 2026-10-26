@@ -26,8 +26,8 @@ void App::createToolbar() {
     button(ID_WINDOW, L"창", 46);
     button(ID_FULL, L"전체 화면", 80);
     button(ID_SCROLL, L"스크롤", 68);
-    for (int i = 0; i <= (int)Tool::Erase; ++i)
-        button(ID_TOOL + i, ToolNames[i], 32, true);
+    for (auto value : ToolbarTools)
+        button(ID_TOOL + (int)value, ToolNames[(int)value], 32, true);
     auto current = control(main, L"STATIC", L"현재 색상", SS_OWNERDRAW, 0, 0, 36, 36, ID_COLOR);
     topControls.push_back({ID_COLOR, current});
     for (int i = 0; i < PaletteCount; ++i)
@@ -56,8 +56,8 @@ int App::layoutToolbar(int width, UINT dpi) {
         }
     y += s(38);
     x = s(10);
-    for (int i = 0; i <= (int)Tool::Erase; ++i) {
-        MoveWindow(GetDlgItem(main, ID_TOOL + i), x, y + s(6), s(32), s(32), TRUE);
+    for (auto value : ToolbarTools) {
+        MoveWindow(GetDlgItem(main, ID_TOOL + (int)value), x, y + s(6), s(32), s(32), TRUE);
         x += s(33);
     }
     int bottom = y + s(48), paletteWidth = s(290);
@@ -89,17 +89,21 @@ int App::layoutToolbar(int width, UINT dpi) {
 }
 void App::refreshToolbar() {
     for (auto [id, h] : topControls)
-        if ((id >= ID_TOOL && id <= ID_TOOL + (UINT)Tool::Erase) ||
+        if ((id >= ID_TOOL && id <= ID_TOOL + (UINT)Tool::PixelSelect) ||
             (id >= ID_PALETTE && id < ID_PALETTE + PaletteCount) || id == ID_COLOR)
             InvalidateRect(h, nullptr, FALSE);
 }
 void App::setTool(Tool next) {
     if (next != tool)
         finishText();
+    if (next != tool)
+        clearPixelSelection();
     tool = next;
     refreshToolbar();
     if (tool == Tool::Text)
         statusText(L"이미지 위에 텍스트 영역을 드래그하세요. Enter 줄바꿈 · Ctrl+Enter 확정 · Esc 취소");
+    else if (tool == Tool::PixelSelect)
+        statusText(L"사각형으로 선택한 뒤 안쪽을 드래그해 이동하세요. Ctrl+C 영역 복사 · Esc 선택 해제");
 }
 void App::setColor(uint32_t next) {
     color = next;
@@ -116,7 +120,7 @@ void App::paintToolbarButton(DRAWITEMSTRUCT *item) {
     bool palette = id >= ID_PALETTE && id < ID_PALETTE + PaletteCount;
     bool current = id == ID_COLOR;
     bool selected = palette ? color == Palette[id - ID_PALETTE].value
-                            : !current && id >= ID_TOOL && id <= ID_TOOL + (UINT)Tool::Erase &&
+                            : !current && id >= ID_TOOL && id <= ID_TOOL + (UINT)Tool::PixelSelect &&
                                   (UINT)tool == id - ID_TOOL;
     bool hover = hoveredButton == item->hwndItem, pressed = (item->itemState & ODS_SELECTED) != 0;
     Graphics g(item->hDC);
@@ -143,6 +147,10 @@ void App::paintToolbarButton(DRAWITEMSTRUCT *item) {
         Gdiplus::SolidBrush ink(Color(selected ? 0xff1d4ed8 : 0xff334155));
         auto line = [&](float x, float y, float x2, float y2) { g.DrawLine(&pen, x, y, x2, y2); };
         switch ((Tool)(id - ID_TOOL)) {
+        case Tool::PixelSelect:
+            pen.SetDashStyle(Gdiplus::DashStyleDash);
+            g.DrawRectangle(&pen, 3, 3, 18, 18);
+            break;
         case Tool::Select: {
             Gdiplus::PointF p[] = {{4, 2}, {4, 20}, {9, 15}, {13, 22}, {16, 20}, {12, 13}, {19, 12}};
             g.DrawPolygon(&pen, p, 7);

@@ -1,0 +1,12 @@
+{
+  "checks_passed": 21,
+  "rectangle_pixel_move": true,
+  "photo_and_annotations_moved": true,
+  "overlap_safe": true,
+  "undo_and_metadata_roundtrip": true,
+  "selected_region_copy": true,
+  "crop_boundary_clamp": true,
+  "preview_buffers_reused_and_released": true,
+  "computer_use": false,
+  "system_clipboard_modified": false
+}

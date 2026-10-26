@@ -188,6 +188,7 @@ void App::show() {
 }
 void App::hide() {
     finishText();
+    clearPixelSelection();
     saveView();
     ShowWindow(main, SW_HIDE);
     original.reset();
@@ -358,7 +359,14 @@ void App::command(UINT id) {
     }
     if (id != ID_FONT && id != ID_COLOR && id != ID_FILL)
         finishText();
-    if (id >= ID_TOOL && id <= ID_TOOL + (UINT)Tool::Erase) {
+    if (pixelSelecting || pixelMoving) {
+        if (id == ID_UNDO) {
+            clearPixelSelection();
+            return;
+        }
+        pixelUp();
+    }
+    if (id >= ID_TOOL && id <= ID_TOOL + (UINT)Tool::PixelSelect && id != ID_TOOL + (UINT)Tool::Reset) {
         setTool((Tool)(id - ID_TOOL));
         return;
     }
@@ -528,7 +536,7 @@ void App::command(UINT id) {
         DestroyWindow(main);
         break;
     case ID_ABOUT:
-        message(main, L"LightCapture 0.1.12\n전역 캡처 · 통합 편집 · 최근 캡처\n\nCtrl + Shift + X "
+        message(main, L"LightCapture 0.1.13\n전역 캡처 · 통합 편집 · 최근 캡처\n\nCtrl + Shift + X "
                       L"(환경설정에서 변경)\n닫기: 트레이 대기 / 파일 메뉴: 프로그램 종료\n\n성능·알캡처 "
                       L"동등성 전체 검증은 아직 완료되지 않았습니다.");
         break;
@@ -616,7 +624,7 @@ LRESULT CALLBACK App::mainProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             ((MINMAXINFO *)l)->ptMinTrackSize = {720, 480};
             return 0;
         case WM_DRAWITEM:
-            if ((w >= ID_TOOL && w <= ID_TOOL + (UINT)Tool::Erase) ||
+            if ((w >= ID_TOOL && w <= ID_TOOL + (UINT)Tool::PixelSelect) ||
                 (w >= ID_PALETTE && w < ID_PALETTE + PaletteCount) || w == ID_COLOR) {
                 a->paintToolbarButton((DRAWITEMSTRUCT *)l);
                 return TRUE;
