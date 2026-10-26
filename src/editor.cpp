@@ -1,4 +1,5 @@
 #include "app.h"
+#include "theme.h"
 namespace lc {
 HCURSOR App::canvasCursor(UINT dpi) {
     if (panning)
@@ -163,7 +164,7 @@ void App::paintCanvas(HDC dc) {
     auto old = SelectObject(mem, hb);
     {
         Graphics g(mem);
-        g.Clear(Color(255, 231, 234, 239));
+        g.Clear(Color(theme::Canvas));
         if (rendered && doc()) {
             auto b = imageBounds(), r = viewRect(*doc());
             Gdiplus::SolidBrush white(Color::White);
@@ -197,6 +198,8 @@ void App::paintCanvas(HDC dc) {
                 outline.SetDashStyle(Gdiplus::DashStyleDash);
                 g.DrawRectangle(&outline, (int)rect.left - 1, (int)rect.top - 1, rw(rect) + 1, rh(rect) + 1);
             }
+            Gdiplus::Pen imageEdge(Color(theme::Line), 1);
+            g.DrawRectangle(&imageEdge, (int)b.left - 1, (int)b.top - 1, rw(b) + 1, rh(b) + 1);
             paintPixelSelection(g, b, r);
             if (!dragging && tool == Tool::Select && selectedObject >= 0 &&
                 selectedObject < (int)doc()->cursor) {
@@ -233,20 +236,29 @@ void App::paintList(DRAWITEMSTRUCT *item) {
     auto r = item->rcItem;
     auto dpi = GetDpiForWindow(list);
     auto scale = [&](int v) { return MulDiv(v, dpi ? dpi : 96, 96); };
-    bool highlighted = (item->itemState & ODS_SELECTED) || checkedHistory.count(store.docs[item->itemID].id);
-    HBRUSH bg = CreateSolidBrush(highlighted ? RGB(219, 234, 254) : RGB(255, 255, 255));
-    FillRect(item->hDC, &r, bg);
-    DeleteObject(bg);
+    bool checked = checkedHistory.count(d.id) != 0;
+    bool current = (int)item->itemID == selected;
+    Graphics surface(item->hDC);
+    surface.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+    Gdiplus::SolidBrush rowBackground(Color(theme::Sidebar));
+    surface.FillRectangle(&rowBackground, (int)r.left, (int)r.top, rw(r), rh(r));
+    theme::rounded(
+        surface,
+        {(float)r.left + scale(2), (float)r.top + scale(3), (float)rw(r) - scale(4), (float)rh(r) - scale(7)},
+        (float)scale(7), checked ? theme::Tint : theme::Sidebar,
+        current   ? 0xff89b6fb
+        : checked ? 0xffc7dbfb
+                  : 0);
     if (!thumbs.count(d.id)) {
         try {
             auto b = loadImage(store.png(d));
             auto detail = d.loaded ? d : store.read(d);
             auto v = output(*b, detail);
-            int w = std::max(1, std::min(164, (int)v->GetWidth())),
+            int w = std::max(1, std::min(104, (int)v->GetWidth())),
                 h = std::max(1, (int)(v->GetHeight() * (w / (float)v->GetWidth())));
-            if (h > 76) {
-                w = std::max(1, w * 76 / h);
-                h = 76;
+            if (h > 70) {
+                w = std::max(1, w * 70 / h);
+                h = 70;
             }
             auto thumb = std::make_unique<Bitmap>(w, h, PixelFormat32bppARGB);
             {
@@ -267,42 +279,61 @@ void App::paintList(DRAWITEMSTRUCT *item) {
         }
     }
     if (thumbs.count(d.id)) {
-        Graphics g(item->hDC);
         auto t = thumbs[d.id].get();
         int w = scale((int)t->GetWidth()), h = scale((int)t->GetHeight());
-        g.DrawImage(t, (int)r.left + (rw(r) - w) / 2, (int)r.top + scale(8), w, h);
+        surface.DrawImage(t, (int)r.left + scale(44) + (scale(104) - w) / 2, (int)r.top + (rh(r) - h) / 2, w,
+                          h);
     }
-    SetBkMode(item->hDC, TRANSPARENT);
-    SetTextColor(item->hDC, RGB(31, 41, 55));
-    auto old = SelectObject(item->hDC, uiFont);
     auto checkbox = historyCheckRect(r, dpi);
-    DrawFrameControl(item->hDC, &checkbox, DFC_BUTTON,
-                     DFCS_BUTTONCHECK | (checkedHistory.count(d.id) ? DFCS_CHECKED : 0));
-    RECT text{r.left + scale(34), r.top + scale(88), r.right - scale(8), r.bottom - scale(3)};
-    std::wstring label = std::to_wstring(item->itemID + 1) + L" · " + std::to_wstring(d.width) + L" × " +
-                         std::to_wstring(d.height);
-    DrawTextW(item->hDC, label.c_str(), -1, &text, DT_SINGLELINE | DT_END_ELLIPSIS);
-    SelectObject(item->hDC, old);
-    if (item->itemState & ODS_FOCUS)
-        DrawFocusRect(item->hDC, &r);
-    // Paint after the thumbnail so the close affordance is always visible.
-    auto close = historyCloseRect(r, GetDpiForWindow(list));
-    HBRUSH closeBg = CreateSolidBrush(pressedClose == d.id ? RGB(254, 202, 202) : RGB(241, 245, 249));
-    FillRect(item->hDC, &close, closeBg);
-    DeleteObject(closeBg);
-    HPEN pen = CreatePen(PS_SOLID, 2, RGB(71, 85, 105));
-    auto oldPen = SelectObject(item->hDC, pen);
-    int inset = std::max(5, rw(close) / 3);
-    MoveToEx(item->hDC, close.left + inset, close.top + inset, nullptr);
-    LineTo(item->hDC, close.right - inset, close.bottom - inset);
-    MoveToEx(item->hDC, close.right - inset - 1, close.top + inset, nullptr);
-    LineTo(item->hDC, close.left + inset - 1, close.bottom - inset);
-    SelectObject(item->hDC, oldPen);
-    DeleteObject(pen);
+    theme::rounded(
+        surface, {(float)checkbox.left, (float)checkbox.top, (float)rw(checkbox), (float)rh(checkbox)},
+        (float)scale(3), checked ? theme::Blue : theme::Window, checked ? theme::Blue : 0xffaab6c6);
+    if (checked) {
+        Gdiplus::Pen tick(Color::White, (float)scale(2));
+        surface.DrawLine(&tick, (int)checkbox.left + scale(4), (int)checkbox.top + scale(9),
+                         (int)checkbox.left + scale(8), (int)checkbox.top + scale(13));
+        surface.DrawLine(&tick, (int)checkbox.left + scale(8), (int)checkbox.top + scale(13),
+                         (int)checkbox.left + scale(14), (int)checkbox.top + scale(5));
+    }
+    Gdiplus::Font font(item->hDC, uiFont);
+    Gdiplus::StringFormat format;
+    format.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+    format.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
+    format.SetTrimming(Gdiplus::StringTrimmingEllipsisCharacter);
+    Gdiplus::SolidBrush ink(Color(theme::Ink)), muted(Color(theme::Muted));
+    surface.SetTextRenderingHint(Gdiplus::TextRenderingHintClearTypeGridFit);
+    Gdiplus::RectF text((float)r.left + scale(158), (float)r.top + scale(27),
+                        (float)std::max(1, rw(r) - scale(194)), (float)scale(24));
+    std::wstring label = std::to_wstring(d.width) + L" × " + std::to_wstring(d.height);
+    surface.DrawString(label.c_str(), -1, &font, text, &format, &ink);
+    text.Y += scale(27);
+    std::wstring secondary = L"캡처 " + std::to_wstring(item->itemID + 1);
+    if (d.id.size() >= 15 && d.id[8] == L'_')
+        secondary = d.id.substr(4, 2) + L"/" + d.id.substr(6, 2) + L"  " + d.id.substr(9, 2) + L":" +
+                    d.id.substr(11, 2);
+    surface.DrawString(secondary.c_str(), -1, &font, text, &format, &muted);
+    if (item->itemState & ODS_FOCUS) {
+        Gdiplus::Pen focus(Color(theme::Blue), 1);
+        focus.SetDashStyle(Gdiplus::DashStyleDot);
+        surface.DrawRectangle(&focus, (int)r.left + scale(5), (int)r.top + scale(6), rw(r) - scale(10),
+                              rh(r) - scale(13));
+    }
+    auto close = historyCloseRect(r, dpi);
+    if (pressedClose == d.id)
+        theme::rounded(surface, {(float)close.left, (float)close.top, (float)rw(close), (float)rh(close)},
+                       (float)scale(4), 0xfffee2e2);
+    Gdiplus::Pen cross(Color(theme::Muted), 1.5f);
+    int inset = scale(8);
+    surface.DrawLine(&cross, (int)close.left + inset, (int)close.top + inset, (int)close.right - inset,
+                     (int)close.bottom - inset);
+    surface.DrawLine(&cross, (int)close.right - inset, (int)close.top + inset, (int)close.left + inset,
+                     (int)close.bottom - inset);
 }
+
 RECT App::historyCloseRect(RECT row, UINT dpi) {
-    int size = MulDiv(24, dpi ? dpi : 96, 96), gap = MulDiv(4, dpi ? dpi : 96, 96);
-    return {row.right - gap - size, row.top + gap, row.right - gap, row.top + gap + size};
+    int size = MulDiv(24, dpi ? dpi : 96, 96), gap = MulDiv(6, dpi ? dpi : 96, 96);
+    int top = row.top + (rh(row) - size) / 2;
+    return {row.right - gap - size, top, row.right - gap, top + size};
 }
 int App::historyCloseHit(POINT p) {
     RECT client{};

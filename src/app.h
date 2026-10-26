@@ -141,6 +141,8 @@ class App {
     std::wstring warning;
     std::vector<std::pair<UINT, HWND>> topControls;
     HWND widthControl = nullptr, toolControl = nullptr;
+    int toolbarBottom = 0;
+    std::vector<RECT> toolbarDividers;
     explicit App(fs::path root) : store(std::move(root)) {}
     ~App() {
         for (auto &entry : penCursors)
@@ -156,6 +158,8 @@ class App {
     void createToolbar();
     int layoutToolbar(int width, UINT dpi);
     void paintToolbarButton(DRAWITEMSTRUCT *item);
+    void paintActionButton(DRAWITEMSTRUCT *item);
+    void paintChrome(HDC dc);
     void refreshToolbar();
     void setTool(Tool next);
     void setColor(uint32_t next);

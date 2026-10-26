@@ -1,0 +1,14 @@
+{
+  "Version": "0.1.14",
+  "Design": "01 Fluent Light",
+  "PEMachine": "0x8664 AMD64",
+  "ExecutableSHA256": "44562e86dff76dec9a437c4c203ec83cf03fd1b7c07326ab0f2875e747bc0e62",
+  "ExecutableBytes": 1873920,
+  "CoreChecksPassed": 49,
+  "ClipboardPixelChecksPassed": 11,
+  "PixelSelectionChecksPassed": 21,
+  "FluentThumbnailAndSaveLabelPixelsPassed": true,
+  "ComputerUseUsed": false,
+  "DesktopCapturePerformed": false,
+  "SystemClipboardModified": false
+}

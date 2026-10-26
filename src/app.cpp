@@ -1,5 +1,6 @@
 #include "app.h"
 #include "toolbar.h"
+#include "theme.h"
 #include <sstream>
 namespace lc {
 App *app = nullptr;
@@ -273,7 +274,7 @@ void App::create(HINSTANCE inst, bool hidden) {
     extern LRESULT CALLBACK settingsProc(HWND, UINT, WPARAM, LPARAM);
     reg(L"LCSettings", settingsProc, (HBRUSH)(COLOR_WINDOW + 1));
     main = CreateWindowExW(0, L"LCMain", AppName, WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT,
-                           CW_USEDEFAULT, 1180, 790, nullptr, nullptr, inst, this);
+                           CW_USEDEFAULT, 1360, 860, nullptr, nullptr, inst, this);
     require(main != nullptr, "main window failed");
     taskbarMessage = RegisterWindowMessageW(L"TaskbarCreated");
     notifyTray();
@@ -300,8 +301,8 @@ void App::create(HINSTANCE inst, bool hidden) {
         auto p = store.root / L"view.ini";
         int x = GetPrivateProfileIntW(L"View", L"x", 100, p.c_str()),
             y = GetPrivateProfileIntW(L"View", L"y", 100, p.c_str());
-        int w = GetPrivateProfileIntW(L"View", L"w", 1180, p.c_str()),
-            hh = GetPrivateProfileIntW(L"View", L"h", 790, p.c_str());
+        int w = GetPrivateProfileIntW(L"View", L"w", 1360, p.c_str()),
+            hh = GetPrivateProfileIntW(L"View", L"h", 860, p.c_str());
         RECT r{x, y, x + std::clamp(w, 720, 8000), y + std::clamp(hh, 480, 8000)};
         MONITORINFO mi{sizeof(mi)};
         GetMonitorInfoW(MonitorFromRect(&r, MONITOR_DEFAULTTONEAREST), &mi);
@@ -325,14 +326,18 @@ void App::layout() {
         dpi = 96;
     auto scale = [&](int v) { return MulDiv(v, dpi, 96); };
     int top = layoutToolbar(rw(r), dpi);
-    int sidebar = rw(r) - scale(208);
-    MoveWindow(historyDelete, sidebar + scale(8), top + scale(4), scale(92), scale(28), TRUE);
-    MoveWindow(historySave, sidebar + scale(108), top + scale(4), scale(92), scale(28), TRUE);
-    MoveWindow(historyCheckAll, sidebar + scale(8), top + scale(36), scale(104), scale(24), TRUE);
-    MoveWindow(historyCheckCount, sidebar + scale(112), top + scale(39), scale(88), scale(21), TRUE);
-    MoveWindow(list, sidebar, top + scale(66), scale(208), std::max(1, rh(r) - top - scale(66 + 25)), TRUE);
-    SendMessageW(list, LB_SETITEMHEIGHT, 0, scale(116));
-    MoveWindow(canvas, 0, top, std::max(1, sidebar - scale(2)), std::max(1, rh(r) - top - scale(25)), TRUE);
+    int sidebarWidth = scale(std::clamp(MulDiv(rw(r), 96, dpi) * 27 / 100, 296, 380));
+    int sidebar = rw(r) - sidebarWidth;
+    int actionWidth = (sidebarWidth - scale(40)) / 2;
+    MoveWindow(historyDelete, sidebar + scale(16), top + scale(16), actionWidth, scale(40), TRUE);
+    MoveWindow(historySave, sidebar + scale(24) + actionWidth, top + scale(16), actionWidth, scale(40), TRUE);
+    MoveWindow(historyCheckAll, sidebar + scale(18), top + scale(70), scale(116), scale(28), TRUE);
+    MoveWindow(historyCheckCount, sidebar + sidebarWidth - scale(116), top + scale(74), scale(98), scale(24),
+               TRUE);
+    MoveWindow(list, sidebar + scale(8), top + scale(108), sidebarWidth - scale(16),
+               std::max(1, rh(r) - top - scale(108 + 32)), TRUE);
+    SendMessageW(list, LB_SETITEMHEIGHT, 0, scale(108));
+    MoveWindow(canvas, 0, top, std::max(1, sidebar), std::max(1, rh(r) - top - scale(26)), TRUE);
 }
 void App::command(UINT id) {
     if (id == 181) {
@@ -536,7 +541,7 @@ void App::command(UINT id) {
         DestroyWindow(main);
         break;
     case ID_ABOUT:
-        message(main, L"LightCapture 0.1.13\n전역 캡처 · 통합 편집 · 최근 캡처\n\nCtrl + Shift + X "
+        message(main, L"LightCapture 0.1.14\n전역 캡처 · 통합 편집 · 최근 캡처\n\nCtrl + Shift + X "
                       L"(환경설정에서 변경)\n닫기: 트레이 대기 / 파일 메뉴: 프로그램 종료\n\n성능·알캡처 "
                       L"동등성 전체 검증은 아직 완료되지 않았습니다.");
         break;
@@ -607,6 +612,19 @@ LRESULT CALLBACK App::mainProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             a->layout();
             return 0;
         }
+        case WM_ERASEBKGND:
+            a->paintChrome((HDC)w);
+            return 1;
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC dc = BeginPaint(h, &ps);
+            a->paintChrome(dc);
+            EndPaint(h, &ps);
+            return 0;
+        }
+        case WM_PRINTCLIENT:
+            a->paintChrome((HDC)w);
+            return 0;
         case WM_SIZE:
             a->layout();
             return 0;
@@ -615,9 +633,12 @@ LRESULT CALLBACK App::mainProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             if ((HWND)l == GetDlgItem(h, ID_FILL) || (HWND)l == a->historyCheckAll ||
                 (HWND)l == a->historyCheckCount) {
                 SetBkMode((HDC)w, OPAQUE);
-                SetBkColor((HDC)w, RGB(255, 255, 255));
+                COLORREF background =
+                    (HWND)l == GetDlgItem(h, ID_FILL) ? RGB(255, 255, 255) : RGB(248, 250, 253);
+                SetBkColor((HDC)w, background);
                 SetTextColor((HDC)w, GetSysColor(COLOR_WINDOWTEXT));
-                return (LRESULT)GetStockObject(WHITE_BRUSH);
+                SetDCBrushColor((HDC)w, background);
+                return (LRESULT)GetStockObject(DC_BRUSH);
             }
             break;
         case WM_GETMINMAXINFO:
@@ -631,6 +652,9 @@ LRESULT CALLBACK App::mainProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             }
             if (w == ID_LIST) {
                 a->paintList((DRAWITEMSTRUCT *)l);
+                return TRUE;
+            } else {
+                a->paintActionButton((DRAWITEMSTRUCT *)l);
                 return TRUE;
             }
             break;

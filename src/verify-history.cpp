@@ -32,8 +32,9 @@ void App::verifyHistory() {
         HDC dc = GetDC(child);
         auto brush = (HBRUSH)SendMessageW(main, WM_CTLCOLORSTATIC, (WPARAM)dc, (LPARAM)child);
         LOGBRUSH color{};
-        bool white = GetObjectW(brush, sizeof(color), &color) && color.lbColor == RGB(255, 255, 255) &&
-                     GetBkColor(dc) == RGB(255, 255, 255);
+        auto expected = child == GetDlgItem(main, ID_FILL) ? RGB(255, 255, 255) : RGB(248, 250, 253);
+        bool white = brush && GetObjectW(brush, sizeof(color), &color) && GetDCBrushColor(dc) == expected &&
+                     GetBkColor(dc) == expected;
         ReleaseDC(child, dc);
         require(white, "toolbar checkbox or count background differs from white surface");
     }
@@ -237,6 +238,28 @@ void App::verifyHistory() {
     };
     assertLayout();
     historyPreview(main, store.root / L"right-history-preview.png");
+    {
+        auto renderedUi = loadImage(store.root / L"right-history-preview.png");
+        RECT position{};
+        GetWindowRect(list, &position);
+        MapWindowPoints(nullptr, main, (POINT *)&position, 2);
+        auto dpi = GetDpiForWindow(main);
+        Color sample;
+        renderedUi->GetPixel(position.left + MulDiv(96, dpi, 96), position.top + MulDiv(54, dpi, 96),
+                             &sample);
+        require(sample.GetR() > 200 && sample.GetG() > 80 && sample.GetB() < 70,
+                "Fluent thumbnail was drawn outside its own row");
+        GetWindowRect(historySave, &position);
+        MapWindowPoints(nullptr, main, (POINT *)&position, 2);
+        unsigned blue = 0, white = 0;
+        for (int y = position.top + 4; y < position.bottom - 4; ++y)
+            for (int x = position.left + 4; x < position.right - 4; ++x) {
+                renderedUi->GetPixel(x, y, &sample);
+                blue += sample.GetB() > 150 && sample.GetR() < 60;
+                white += sample.GetR() > 230 && sample.GetG() > 230 && sample.GetB() > 230;
+            }
+        require(blue > 100 && white > 15, "Fluent save button lost blue fill or white label");
+    }
     RECT size{};
     GetWindowRect(main, &size);
     SetWindowPos(main, nullptr, 0, 0, 720, 480, SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOZORDER);
@@ -290,7 +313,8 @@ void App::verifyHistory() {
          "  \"copy_menu_command_prepares_edited_dib\": true,\n  \"system_clipboard_modified\": false,\n"
          "  \"modern_folder_dialog_options_and_unicode_initial_path\": true,\n"
          "  \"last_save_folder_retained_on_cancel\": true,\n  \"folder_dialog_displayed\": false,\n"
-         "  \"checkbox_and_count_backgrounds_white\": true,\n"
+         "  \"checkbox_and_count_backgrounds_match_surface\": true,\n"
+         "  \"fluent_thumbnail_coordinates_and_save_label\": true,\n"
          "  \"checked_only_export_with_edits\": true,\n  \"existing_files_preserved\": true,\n"
          "  \"folder_cancel_preserves_state\": true,\n  \"select_all_toggle\": true,\n"
          "  \"save_without_checks_disabled\": true,\n  \"check_all_then_save_exports_all\": true,\n"

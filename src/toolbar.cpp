@@ -1,5 +1,6 @@
 #include "app.h"
 #include "toolbar.h"
+#include "theme.h"
 namespace lc {
 void App::createToolbar() {
     tooltip =
@@ -13,18 +14,16 @@ void App::createToolbar() {
         ti.lpszText = (wchar_t *)text;
         SendMessageW(tooltip, TTM_ADDTOOLW, 0, (LPARAM)&ti);
     };
-    auto button = [&](UINT id, const wchar_t *text, int width, bool icon = false) {
-        auto h = control(main, L"BUTTON", text, WS_TABSTOP | (icon ? BS_OWNERDRAW : BS_PUSHBUTTON), 0, 0,
-                         width, 30, id);
+    auto button = [&](UINT id, const wchar_t *text, int width, bool /*icon*/ = false) {
+        auto h = control(main, L"BUTTON", text, WS_TABSTOP | BS_OWNERDRAW, 0, 0, width, 30, id);
         topControls.push_back({id, h});
-        if (icon)
-            SetWindowSubclass(h, toolbarProc, 1, (DWORD_PTR)this);
+        SetWindowSubclass(h, toolbarProc, 1, (DWORD_PTR)this);
         tip(h, text);
         return h;
     };
-    button(ID_CAPTURE, L"새 캡처", 86);
-    button(ID_WINDOW, L"창", 46);
-    button(ID_FULL, L"전체 화면", 80);
+    button(ID_CAPTURE, L"새 캡처", 108);
+    button(ID_WINDOW, L"창", 56);
+    button(ID_FULL, L"전체 화면", 88);
     button(ID_SCROLL, L"스크롤", 68);
     for (auto value : ToolbarTools)
         button(ID_TOOL + (int)value, ToolNames[(int)value], 32, true);
@@ -43,49 +42,52 @@ void App::createToolbar() {
 }
 int App::layoutToolbar(int width, UINT dpi) {
     auto s = [&](int v) { return MulDiv(v, dpi, 96); };
-    int x = s(10), y = s(8);
-    for (auto [id, h] : topControls)
-        if (id < ID_COPY || id == ID_SAVE) {
-            int w = s((int)(INT_PTR)GetPropW(h, L"LCBaseWidth"));
-            if (x + w > width - s(10)) {
-                x = s(10);
-                y += s(34);
+    int x = s(16), y = s(12), row = s(48);
+    toolbarDividers.clear();
+    auto group = [&](int logicalWidth) {
+        int groupWidth = s(logicalWidth);
+        if (x + groupWidth > width - s(16)) {
+            x = s(16);
+            y += row;
+        } else if (x > s(16)) {
+            toolbarDividers.push_back({x + s(7), y + s(6), x + s(7), y + s(30)});
+            x += s(20);
+            if (x + groupWidth > width - s(16)) {
+                toolbarDividers.pop_back();
+                x = s(16);
+                y += row;
             }
-            MoveWindow(h, x, y, w, s(28), TRUE);
-            x += w + s(6);
         }
-    y += s(38);
-    x = s(10);
+    };
+    group(344);
+    for (UINT id : {(UINT)ID_CAPTURE, (UINT)ID_WINDOW, (UINT)ID_FULL, (UINT)ID_SCROLL}) {
+        HWND h = GetDlgItem(main, id);
+        int w = s((int)(INT_PTR)GetPropW(h, L"LCBaseWidth"));
+        MoveWindow(h, x, y, w, s(36), TRUE);
+        x += w + s(6);
+    }
+    group(432);
     for (auto value : ToolbarTools) {
-        MoveWindow(GetDlgItem(main, ID_TOOL + (int)value), x, y + s(6), s(32), s(32), TRUE);
-        x += s(33);
+        MoveWindow(GetDlgItem(main, ID_TOOL + (int)value), x, y, s(34), s(36), TRUE);
+        x += s(36);
     }
-    int bottom = y + s(48), paletteWidth = s(290);
-    if (x + s(14) + paletteWidth > width - s(10)) {
-        x = s(10);
-        y = bottom + s(8);
-        bottom = y + s(48);
-    } else
-        x += s(14);
-    MoveWindow(GetDlgItem(main, ID_COLOR), x, y + s(4), s(36), s(36), TRUE);
-    x += s(46);
+    group(200);
+    MoveWindow(GetDlgItem(main, ID_COLOR), x, y + s(2), s(30), s(32), TRUE);
+    x += s(40);
     for (int i = 0; i < PaletteCount; ++i)
-        MoveWindow(GetDlgItem(main, ID_PALETTE + i), x + s((i % 10) * 24), y + s((i / 10) * 24), s(22), s(22),
+        MoveWindow(GetDlgItem(main, ID_PALETTE + i), x + s((i % 10) * 16), y + s((i / 10) * 18), s(15), s(16),
                    TRUE);
-    x += s(240) + s(16);
-    int options = s(58 + 60 + 58 + 58 + 18);
-    if (x + options > width - s(10)) {
-        x = s(10);
-        y = bottom + s(6);
-        bottom = y + s(30);
-    }
+    x += s(160);
+    group(258);
     for (UINT id : {181u, (UINT)ID_FILL, (UINT)ID_FONT, (UINT)ID_FIT}) {
         HWND h = GetDlgItem(main, id);
         int w = s((int)(INT_PTR)GetPropW(h, L"LCBaseWidth"));
-        MoveWindow(h, x, y + s(6), w, s(28), TRUE);
+        MoveWindow(h, x, y, w, s(36), TRUE);
         x += w + s(6);
     }
-    return std::max(bottom, y + s(34)) + s(8);
+    toolbarBottom = y + s(48);
+    InvalidateRect(main, nullptr, FALSE);
+    return toolbarBottom;
 }
 void App::refreshToolbar() {
     for (auto [id, h] : topControls)
@@ -130,10 +132,14 @@ void App::paintToolbarButton(DRAWITEMSTRUCT *item) {
     Gdiplus::SolidBrush background(Color(selected             ? 0xffdbeafe
                                          : (hover || pressed) ? 0xffedf2f7
                                                               : 0xffffffff));
-    g.FillRectangle(&background, (int)r.left, (int)r.top, (int)w, (int)h);
+    g.Clear(Color(theme::Window));
+    theme::rounded(g, {r.left + 1.f, r.top + 1.f, w - 2, h - 2}, 5.f,
+                   selected             ? theme::Tint
+                   : (hover || pressed) ? 0xfff0f4fa
+                                        : theme::Window);
     if (palette || current) {
         Gdiplus::SolidBrush paint(Color(current ? color : Palette[id - ID_PALETTE].value));
-        float inset = current ? 3 : 4;
+        float inset = current ? 4 : 2;
         g.FillRectangle(&paint, r.left + inset, r.top + inset, w - inset * 2, h - inset * 2);
         Gdiplus::Pen edge(Color(0xff94a3b8), 1);
         g.DrawRectangle(&edge, r.left + inset, r.top + inset, w - inset * 2 - 1, h - inset * 2 - 1);

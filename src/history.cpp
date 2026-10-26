@@ -40,11 +40,14 @@ fs::path chooseFolder(HWND owner, const fs::path &initial, const std::wstring &t
     return selected;
 }
 void App::createHistoryActions() {
-    historyDelete = control(main, L"BUTTON", L"삭제", WS_TABSTOP, 0, 0, 92, 28, ID_HISTORY_DELETE);
-    historySave = control(main, L"BUTTON", L"저장", WS_TABSTOP, 0, 0, 92, 28, ID_SAVE);
+    historyDelete =
+        control(main, L"BUTTON", L"삭제", WS_TABSTOP | BS_OWNERDRAW, 0, 0, 92, 28, ID_HISTORY_DELETE);
+    historySave = control(main, L"BUTTON", L"저장", WS_TABSTOP | BS_OWNERDRAW, 0, 0, 92, 28, ID_SAVE);
+    SetWindowSubclass(historyDelete, toolbarProc, 1, (DWORD_PTR)this);
+    SetWindowSubclass(historySave, toolbarProc, 1, (DWORD_PTR)this);
     historyCheckAll =
         control(main, L"BUTTON", L"전체 체크", BS_3STATE | WS_TABSTOP, 0, 0, 104, 24, ID_CHECK_ALL);
-    historyCheckCount = control(main, L"STATIC", L"0개 체크", SS_RIGHT, 0, 0, 88, 24, ID_CHECK_COUNT);
+    historyCheckCount = control(main, L"STATIC", L"0개 선택", SS_RIGHT, 0, 0, 88, 24, ID_CHECK_COUNT);
     TOOLINFOW ti{sizeof(ti)};
     ti.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
     ti.hwnd = main;
@@ -75,11 +78,12 @@ void App::refreshHistoryActions() {
                  : checkedHistory.size() == store.docs.size() ? BST_CHECKED
                                                               : BST_INDETERMINATE;
     SendMessageW(historyCheckAll, BM_SETCHECK, state, 0);
-    SetWindowTextW(historyCheckCount, (std::to_wstring(checkedHistory.size()) + L"개 체크").c_str());
+    SetWindowTextW(historyCheckCount, (std::to_wstring(checkedHistory.size()) + L"개 선택").c_str());
 }
 RECT App::historyCheckRect(RECT row, UINT dpi) {
     auto s = [&](int v) { return MulDiv(v, dpi ? dpi : 96, 96); };
-    return {row.left + s(8), row.top + s(88), row.left + s(26), row.top + s(106)};
+    int top = row.top + (rh(row) - s(18)) / 2;
+    return {row.left + s(12), top, row.left + s(30), top + s(18)};
 }
 int App::historyItemAt(POINT p) {
     RECT client{};
