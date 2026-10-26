@@ -246,9 +246,9 @@ void App::paintList(DRAWITEMSTRUCT *item) {
         surface,
         {(float)r.left + scale(2), (float)r.top + scale(3), (float)rw(r) - scale(4), (float)rh(r) - scale(7)},
         (float)scale(7), checked ? theme::Tint : theme::Sidebar,
-        current   ? 0xff89b6fb
-        : checked ? 0xffc7dbfb
-                  : 0);
+        (current || (item->itemState & ODS_FOCUS)) ? 0xff89b6fb
+        : checked                                  ? 0xffc7dbfb
+                                                   : 0);
     if (!thumbs.count(d.id)) {
         try {
             auto b = loadImage(store.png(d));
@@ -299,12 +299,6 @@ void App::paintList(DRAWITEMSTRUCT *item) {
                          (int)checkbox.left + scale(8), (int)checkbox.top + scale(13));
         surface.DrawLine(&tick, (int)checkbox.left + scale(8), (int)checkbox.top + scale(13),
                          (int)checkbox.left + scale(14), (int)checkbox.top + scale(5));
-    }
-    if (item->itemState & ODS_FOCUS) {
-        Gdiplus::Pen focus(Color(theme::Blue), 1);
-        focus.SetDashStyle(Gdiplus::DashStyleDot);
-        surface.DrawRectangle(&focus, (int)r.left + scale(5), (int)r.top + scale(6), rw(r) - scale(10),
-                              rh(r) - scale(13));
     }
     auto close = historyCloseRect(r, dpi);
     if (pressedClose == d.id)

@@ -1,0 +1,17 @@
+{
+  "Version": "0.1.16",
+  "Design": "Fluent Light single rounded history focus outline",
+  "PEMachine": "0x8664 AMD64",
+  "ExecutableSHA256": "5ba724a04482c8b58dacef43ea1272ee501781743602d5e8dd3e0ecc7e945a73",
+  "ExecutableBytes": 1873408,
+  "CoreChecksPassed": 49,
+  "ClipboardPixelChecksPassed": 11,
+  "PixelSelectionChecksPassed": 21,
+  "SidebarWidthRatioToPrevious": "2/3",
+  "ThumbnailBorderPassed": true,
+  "SingleRoundedHistoryFocusOutline": true,
+  "HeaderAndFooterLayoutPassed": true,
+  "ComputerUseUsed": false,
+  "DesktopCapturePerformed": false,
+  "SystemClipboardModified": false
+}
