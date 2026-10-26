@@ -224,11 +224,31 @@ void App::verifyHistory() {
     require(!checkedHistory.count(removed) && checkedHistory.size() == 2 && doc()->id == active,
             "removing a checked image damaged check state or active image");
     auto assertLayout = [&]() {
-        RECT canvasRect{}, listRect{}, saveRect{}, deleteRect{};
+        RECT canvasRect{}, listRect{}, saveRect{}, deleteRect{}, client{}, allRect{}, countRect{};
         GetWindowRect(canvas, &canvasRect);
         GetWindowRect(list, &listRect);
         GetWindowRect(historySave, &saveRect);
         GetWindowRect(historyDelete, &deleteRect);
+        GetClientRect(main, &client);
+        GetWindowRect(historyCheckAll, &allRect);
+        GetWindowRect(historyCheckCount, &countRect);
+        auto dpi = GetDpiForWindow(main);
+        int oldWidth = std::clamp(MulDiv(rw(client), 96, dpi) * 27 / 100, 296, 380);
+        int expectedWidth = MulDiv(oldWidth * 2 / 3, dpi, 96);
+        require(std::abs(rw(client) - rw(canvasRect) - expectedWidth) <= 1 &&
+                    allRect.right <= countRect.left && countRect.right <= saveRect.right + 4,
+                "compact history width or header labels overlap");
+        RECT row{};
+        SendMessageW(list, LB_GETITEMRECT, 0, (LPARAM)&row);
+        RECT listClient{};
+        GetClientRect(list, &listClient);
+        require(rh(listClient) < MulDiv(116, dpi, 96) || rh(row) <= rh(listClient),
+                "first history item's footer is clipped at minimum window height");
+        auto thumb = historyThumbnailRect(row, dpi, store.docs[0].width, store.docs[0].height);
+        auto check = historyCheckRect(row, dpi), close = historyCloseRect(row, dpi);
+        require(rw(thumb) > MulDiv(104, dpi, 96) && thumb.bottom < check.top && thumb.bottom < close.top &&
+                    thumb.left >= row.left && thumb.right <= row.right,
+                "compact history thumbnail is not enlarged or overlaps footer controls");
         require(listRect.left >= canvasRect.right && saveRect.top < listRect.top &&
                     deleteRect.top < listRect.top && deleteRect.left >= listRect.left &&
                     deleteRect.right < saveRect.left && saveRect.right <= listRect.right &&
@@ -249,6 +269,13 @@ void App::verifyHistory() {
                              &sample);
         require(sample.GetR() > 200 && sample.GetG() > 80 && sample.GetB() < 70,
                 "Fluent thumbnail was drawn outside its own row");
+        RECT row{};
+        SendMessageW(list, LB_GETITEMRECT, 0, (LPARAM)&row);
+        auto thumb = historyThumbnailRect(row, dpi, store.docs[0].width, store.docs[0].height);
+        renderedUi->GetPixel(position.left + thumb.left - 1, position.top + (thumb.top + thumb.bottom) / 2,
+                             &sample);
+        require(sample.GetR() >= 190 && sample.GetG() >= 200 && sample.GetB() >= 210 && sample.GetR() < 240,
+                "thumbnail does not have a subtle pale border");
         GetWindowRect(historySave, &position);
         MapWindowPoints(nullptr, main, (POINT *)&position, 2);
         unsigned blue = 0, white = 0;
@@ -315,6 +342,8 @@ void App::verifyHistory() {
          "  \"last_save_folder_retained_on_cancel\": true,\n  \"folder_dialog_displayed\": false,\n"
          "  \"checkbox_and_count_backgrounds_match_surface\": true,\n"
          "  \"fluent_thumbnail_coordinates_and_save_label\": true,\n"
+         "  \"compact_two_thirds_sidebar_and_larger_thumbnail\": true,\n"
+         "  \"thumbnail_border_and_footer_controls\": true,\n"
          "  \"checked_only_export_with_edits\": true,\n  \"existing_files_preserved\": true,\n"
          "  \"folder_cancel_preserves_state\": true,\n  \"select_all_toggle\": true,\n"
          "  \"save_without_checks_disabled\": true,\n  \"check_all_then_save_exports_all\": true,\n"

@@ -254,11 +254,11 @@ void App::paintList(DRAWITEMSTRUCT *item) {
             auto b = loadImage(store.png(d));
             auto detail = d.loaded ? d : store.read(d);
             auto v = output(*b, detail);
-            int w = std::max(1, std::min(104, (int)v->GetWidth())),
+            int w = std::max(1, std::min(256, (int)v->GetWidth())),
                 h = std::max(1, (int)(v->GetHeight() * (w / (float)v->GetWidth())));
-            if (h > 70) {
-                w = std::max(1, w * 70 / h);
-                h = 70;
+            if (h > 144) {
+                w = std::max(1, w * 144 / h);
+                h = 144;
             }
             auto thumb = std::make_unique<Bitmap>(w, h, PixelFormat32bppARGB);
             {
@@ -280,9 +280,14 @@ void App::paintList(DRAWITEMSTRUCT *item) {
     }
     if (thumbs.count(d.id)) {
         auto t = thumbs[d.id].get();
-        int w = scale((int)t->GetWidth()), h = scale((int)t->GetHeight());
-        surface.DrawImage(t, (int)r.left + scale(44) + (scale(104) - w) / 2, (int)r.top + (rh(r) - h) / 2, w,
-                          h);
+        auto image = historyThumbnailRect(r, dpi, t->GetWidth(), t->GetHeight());
+        surface.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+        Gdiplus::SolidBrush white(Color::White);
+        surface.FillRectangle(&white, (int)image.left, (int)image.top, rw(image), rh(image));
+        surface.DrawImage(t, (int)image.left, (int)image.top, rw(image), rh(image));
+        Gdiplus::Pen imageBorder(Color(0xffd2dce8), 1);
+        surface.DrawRectangle(&imageBorder, (int)image.left - 1, (int)image.top - 1, rw(image) + 1,
+                              rh(image) + 1);
     }
     auto checkbox = historyCheckRect(r, dpi);
     theme::rounded(
@@ -295,23 +300,6 @@ void App::paintList(DRAWITEMSTRUCT *item) {
         surface.DrawLine(&tick, (int)checkbox.left + scale(8), (int)checkbox.top + scale(13),
                          (int)checkbox.left + scale(14), (int)checkbox.top + scale(5));
     }
-    Gdiplus::Font font(item->hDC, uiFont);
-    Gdiplus::StringFormat format;
-    format.SetLineAlignment(Gdiplus::StringAlignmentCenter);
-    format.SetFormatFlags(Gdiplus::StringFormatFlagsNoWrap);
-    format.SetTrimming(Gdiplus::StringTrimmingEllipsisCharacter);
-    Gdiplus::SolidBrush ink(Color(theme::Ink)), muted(Color(theme::Muted));
-    surface.SetTextRenderingHint(Gdiplus::TextRenderingHintClearTypeGridFit);
-    Gdiplus::RectF text((float)r.left + scale(158), (float)r.top + scale(27),
-                        (float)std::max(1, rw(r) - scale(194)), (float)scale(24));
-    std::wstring label = std::to_wstring(d.width) + L" × " + std::to_wstring(d.height);
-    surface.DrawString(label.c_str(), -1, &font, text, &format, &ink);
-    text.Y += scale(27);
-    std::wstring secondary = L"캡처 " + std::to_wstring(item->itemID + 1);
-    if (d.id.size() >= 15 && d.id[8] == L'_')
-        secondary = d.id.substr(4, 2) + L"/" + d.id.substr(6, 2) + L"  " + d.id.substr(9, 2) + L":" +
-                    d.id.substr(11, 2);
-    surface.DrawString(secondary.c_str(), -1, &font, text, &format, &muted);
     if (item->itemState & ODS_FOCUS) {
         Gdiplus::Pen focus(Color(theme::Blue), 1);
         focus.SetDashStyle(Gdiplus::DashStyleDot);
@@ -332,7 +320,7 @@ void App::paintList(DRAWITEMSTRUCT *item) {
 
 RECT App::historyCloseRect(RECT row, UINT dpi) {
     int size = MulDiv(24, dpi ? dpi : 96, 96), gap = MulDiv(6, dpi ? dpi : 96, 96);
-    int top = row.top + (rh(row) - size) / 2;
+    int top = row.bottom - MulDiv(10, dpi ? dpi : 96, 96) - size;
     return {row.right - gap - size, top, row.right - gap, top + size};
 }
 int App::historyCloseHit(POINT p) {

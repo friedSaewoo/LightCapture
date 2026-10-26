@@ -194,6 +194,7 @@ class App {
     void saveChecked();
     void deleteCheckedHistory();
     static RECT historyCheckRect(RECT row, UINT dpi);
+    static RECT historyThumbnailRect(RECT row, UINT dpi, UINT width, UINT height);
     int historyItemAt(POINT point);
     int historyCheckHit(POINT point);
     void select(int index);

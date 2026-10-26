@@ -82,8 +82,17 @@ void App::refreshHistoryActions() {
 }
 RECT App::historyCheckRect(RECT row, UINT dpi) {
     auto s = [&](int v) { return MulDiv(v, dpi ? dpi : 96, 96); };
-    int top = row.top + (rh(row) - s(18)) / 2;
+    int top = row.bottom - s(12 + 18);
     return {row.left + s(12), top, row.left + s(30), top + s(18)};
+}
+RECT App::historyThumbnailRect(RECT row, UINT dpi, UINT width, UINT height) {
+    auto s = [&](int v) { return MulDiv(v, dpi ? dpi : 96, 96); };
+    RECT box{row.left + s(12), row.top + s(12), row.right - s(12), row.bottom - s(38)};
+    float ratio = std::min(rw(box) / (float)std::max(1u, width), rh(box) / (float)std::max(1u, height));
+    int w = std::max(1, (int)std::lround(width * ratio));
+    int h = std::max(1, (int)std::lround(height * ratio));
+    int x = box.left + (rw(box) - w) / 2, y = box.top + (rh(box) - h) / 2;
+    return {x, y, x + w, y + h};
 }
 int App::historyItemAt(POINT p) {
     RECT client{};

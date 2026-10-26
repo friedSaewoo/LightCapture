@@ -1,0 +1,16 @@
+{
+  "Version": "0.1.15",
+  "Design": "Fluent Light compact image history",
+  "PEMachine": "0x8664 AMD64",
+  "ExecutableSHA256": "6798a15997d6ab709b5d368a925aeff42f9574fe8b49795b93ec3107dfd6edbe",
+  "ExecutableBytes": 1873408,
+  "CoreChecksPassed": 49,
+  "ClipboardPixelChecksPassed": 11,
+  "PixelSelectionChecksPassed": 21,
+  "SidebarWidthRatioToPrevious": "2/3",
+  "ThumbnailBorderPassed": true,
+  "HeaderAndFooterLayoutPassed": true,
+  "ComputerUseUsed": false,
+  "DesktopCapturePerformed": false,
+  "SystemClipboardModified": false
+}

@@ -326,17 +326,17 @@ void App::layout() {
         dpi = 96;
     auto scale = [&](int v) { return MulDiv(v, dpi, 96); };
     int top = layoutToolbar(rw(r), dpi);
-    int sidebarWidth = scale(std::clamp(MulDiv(rw(r), 96, dpi) * 27 / 100, 296, 380));
+    int sidebarWidth = scale(std::clamp(MulDiv(rw(r), 96, dpi) * 27 / 100, 296, 380) * 2 / 3);
     int sidebar = rw(r) - sidebarWidth;
-    int actionWidth = (sidebarWidth - scale(40)) / 2;
-    MoveWindow(historyDelete, sidebar + scale(16), top + scale(16), actionWidth, scale(40), TRUE);
-    MoveWindow(historySave, sidebar + scale(24) + actionWidth, top + scale(16), actionWidth, scale(40), TRUE);
-    MoveWindow(historyCheckAll, sidebar + scale(18), top + scale(70), scale(116), scale(28), TRUE);
-    MoveWindow(historyCheckCount, sidebar + sidebarWidth - scale(116), top + scale(74), scale(98), scale(24),
+    int actionWidth = (sidebarWidth - scale(32)) / 2;
+    MoveWindow(historyDelete, sidebar + scale(12), top + scale(12), actionWidth, scale(36), TRUE);
+    MoveWindow(historySave, sidebar + scale(20) + actionWidth, top + scale(12), actionWidth, scale(36), TRUE);
+    MoveWindow(historyCheckAll, sidebar + scale(12), top + scale(60), scale(100), scale(26), TRUE);
+    MoveWindow(historyCheckCount, sidebar + sidebarWidth - scale(82), top + scale(63), scale(70), scale(24),
                TRUE);
-    MoveWindow(list, sidebar + scale(8), top + scale(108), sidebarWidth - scale(16),
-               std::max(1, rh(r) - top - scale(108 + 32)), TRUE);
-    SendMessageW(list, LB_SETITEMHEIGHT, 0, scale(108));
+    int listHeight = std::max(1, rh(r) - top - scale(96 + 32));
+    MoveWindow(list, sidebar + scale(8), top + scale(96), sidebarWidth - scale(16), listHeight, TRUE);
+    SendMessageW(list, LB_SETITEMHEIGHT, 0, std::min(scale(174), std::max(scale(116), listHeight)));
     MoveWindow(canvas, 0, top, std::max(1, sidebar), std::max(1, rh(r) - top - scale(26)), TRUE);
 }
 void App::command(UINT id) {
@@ -541,7 +541,7 @@ void App::command(UINT id) {
         DestroyWindow(main);
         break;
     case ID_ABOUT:
-        message(main, L"LightCapture 0.1.14\n전역 캡처 · 통합 편집 · 최근 캡처\n\nCtrl + Shift + X "
+        message(main, L"LightCapture 0.1.15\n전역 캡처 · 통합 편집 · 최근 캡처\n\nCtrl + Shift + X "
                       L"(환경설정에서 변경)\n닫기: 트레이 대기 / 파일 메뉴: 프로그램 종료\n\n성능·알캡처 "
                       L"동등성 전체 검증은 아직 완료되지 않았습니다.");
         break;
