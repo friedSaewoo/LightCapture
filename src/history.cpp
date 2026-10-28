@@ -52,7 +52,7 @@ void App::createHistoryActions() {
     ti.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
     ti.hwnd = main;
     ti.uId = (UINT_PTR)historySave;
-    ti.lpszText = (wchar_t *)L"체크한 캡처만 저장합니다. Ctrl+S";
+    ti.lpszText = (wchar_t *)L"체크한 캡처만 저장합니다. 현재 이미지 한 장은 Ctrl+S로 저장합니다.";
     SendMessageW(tooltip, TTM_ADDTOOLW, 0, (LPARAM)&ti);
     ti.uId = (UINT_PTR)historyDelete;
     ti.lpszText = (wchar_t *)L"체크한 캡처만 목록과 내부 보관함에서 삭제합니다.";

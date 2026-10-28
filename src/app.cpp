@@ -423,6 +423,9 @@ void App::command(UINT id) {
     case ID_SAVE:
         saveChecked();
         break;
+    case ID_SAVE_CURRENT:
+        save();
+        break;
     case ID_SAVEAS:
         save(true);
         break;
@@ -541,7 +544,7 @@ void App::command(UINT id) {
         DestroyWindow(main);
         break;
     case ID_ABOUT:
-        message(main, L"LightCapture 0.1.16\n전역 캡처 · 통합 편집 · 최근 캡처\n\nCtrl + Shift + X "
+        message(main, L"LightCapture 0.1.17\n전역 캡처 · 통합 편집 · 최근 캡처\n\nCtrl + Shift + X "
                       L"(환경설정에서 변경)\n닫기: 트레이 대기 / 파일 메뉴: 프로그램 종료\n\n성능·알캡처 "
                       L"동등성 전체 검증은 아직 완료되지 않았습니다.");
         break;
@@ -566,7 +569,8 @@ LRESULT CALLBACK App::mainProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             HMENU menu = CreateMenu(), file = CreatePopupMenu(), capture = CreatePopupMenu(),
                   edit = CreatePopupMenu(), view = CreatePopupMenu();
             item(file, ID_OPEN, L"이미지 열기...\tCtrl+O");
-            item(file, ID_SAVE, L"체크한 캡처 저장...\tCtrl+S");
+            item(file, ID_SAVE_CURRENT, L"현재 캡처 저장...\tCtrl+S");
+            item(file, ID_SAVE, L"체크한 캡처 저장...");
             item(file, ID_SAVEAS, L"다른 이름으로 저장...\tCtrl+Shift+S");
             item(file, ID_PRINT, L"인쇄...\tCtrl+P");
             item(file, ID_EXTERNAL, L"외부 편집기에서 열기");
@@ -1125,7 +1129,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
                 SetTimer(instance.main, 99, 15000, nullptr);
             std::vector<ACCEL> keys = {{FVIRTKEY | FCONTROL, 'C', ID_COPY},
                                        {FVIRTKEY | FCONTROL, 'Z', ID_UNDO},
-                                       {FVIRTKEY | FCONTROL, 'S', ID_SAVE},
+                                       {FVIRTKEY | FCONTROL, 'S', ID_SAVE_CURRENT},
                                        {FVIRTKEY | FCONTROL | FSHIFT, 'S', ID_SAVEAS},
                                        {FVIRTKEY | FCONTROL, 'O', ID_OPEN},
                                        {FVIRTKEY | FCONTROL, 'P', ID_PRINT},

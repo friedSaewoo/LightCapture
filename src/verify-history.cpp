@@ -132,6 +132,42 @@ void App::verifyHistory() {
     command(ID_COPY);
     require(copied == 1, "copy command did not prepare an image");
     clipboardVerifier = {};
+    auto checksBeforeSave = checkedHistory;
+    auto exportBeforeSave = lastExport;
+    int currentSavePicks = 0;
+    auto currentTarget = store.root / L"current-capture.png";
+    savePathPicker = [&](const std::wstring &) {
+        ++currentSavePicks;
+        return currentTarget.wstring();
+    };
+    auto verifyCurrentSave = [&]() {
+        command(ID_SAVE_CURRENT);
+        auto image = loadImage(currentTarget);
+        Color pixel;
+        image->GetPixel(5, 5, &pixel);
+        require(image->GetWidth() == 160 && image->GetHeight() == 100 && pixel.GetR() > 180 &&
+                    pixel.GetG() < 100 && doc()->id == active,
+                "current save exported a checked image instead of the active edited capture");
+    };
+    checkedHistory.clear();
+    refreshHistoryActions();
+    verifyCurrentSave();
+    checkedHistory.insert(store.docs[1].id);
+    refreshHistoryActions();
+    currentTarget = store.root / L"current-with-other-checked.png";
+    verifyCurrentSave();
+    require(currentSavePicks == 2 && checkedHistory.size() == 1 && checkedHistory.count(store.docs[1].id),
+            "current save changed the batch selection");
+    auto lastSuccessfulExport = lastExport;
+    auto cancelledTarget = store.root / L"cancelled-current.png";
+    savePathPicker = [&](const std::wstring &) { return std::wstring(); };
+    command(ID_SAVE_CURRENT);
+    require(lastExport == lastSuccessfulExport && !fs::exists(cancelledTarget),
+            "cancelling current save changed the destination");
+    savePathPicker = {};
+    checkedHistory = checksBeforeSave;
+    lastExport = exportBeforeSave;
+    refreshHistoryActions();
     auto folder = store.root / L"checked-export";
     fs::create_directories(folder);
     auto patternBefore = store.settings.pattern;
@@ -338,6 +374,8 @@ void App::verifyHistory() {
     f << "{\n  \"individual_and_shift_range_checks\": true,\n  \"checks_do_not_change_active_image\": true,\n"
          "  \"photo_click_toggles_and_activates\": true,\n  \"shift_photo_click_checks_range\": true,\n"
          "  \"copy_menu_command_prepares_edited_dib\": true,\n  \"system_clipboard_modified\": false,\n"
+         "  \"current_save_ignores_checks_and_preserves_edited_pixels\": true,\n"
+         "  \"current_save_cancel_preserves_destination\": true,\n"
          "  \"modern_folder_dialog_options_and_unicode_initial_path\": true,\n"
          "  \"last_save_folder_retained_on_cancel\": true,\n  \"folder_dialog_displayed\": false,\n"
          "  \"checkbox_and_count_backgrounds_match_surface\": true,\n"

@@ -183,7 +183,7 @@ LRESULT CALLBACK App::textProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR id, 
             return 0;
         }
         if ((GetKeyState(VK_CONTROL) & 0x8000) && w == 'S') {
-            a->command(ID_SAVE);
+            a->command((GetKeyState(VK_SHIFT) & 0x8000) ? ID_SAVEAS : ID_SAVE_CURRENT);
             return 0;
         }
     } else if (m == WM_NCDESTROY)

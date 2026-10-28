@@ -1,0 +1,19 @@
+{
+  "Version": "0.1.17",
+  "Design": "Fluent Light current capture save shortcut",
+  "PEMachine": "0x8664 AMD64",
+  "ExecutableSHA256": "d56be953b4f02ab394f6c52218cdafe2d57d60373f226be1cda52d66cd5bf47c",
+  "ExecutableBytes": 1879040,
+  "CoreChecksPassed": 49,
+  "ClipboardPixelChecksPassed": 11,
+  "PixelSelectionChecksPassed": 21,
+  "SidebarWidthRatioToPrevious": "2/3",
+  "ThumbnailBorderPassed": true,
+  "SingleRoundedHistoryFocusOutline": true,
+  "CurrentSaveIgnoresChecks": true,
+  "CurrentSaveCancelPreservesDestination": true,
+  "HeaderAndFooterLayoutPassed": true,
+  "ComputerUseUsed": false,
+  "DesktopCapturePerformed": false,
+  "SystemClipboardModified": false
+}

@@ -93,7 +93,7 @@ void App::verifyEditor() {
     startText(text);
     SetWindowTextW(textInput, L"저장 버튼으로 입력을 확정합니다.");
     savePathPicker = [&](const std::wstring &) { return (store.root / L"inline-text-saved.png").wstring(); };
-    command(ID_SAVEAS);
+    command(ID_SAVE_CURRENT);
     savePathPicker = {};
     require(!textInput && doc()->cursor == before + 3 && fs::exists(store.root / L"inline-text-saved.png"),
             "saving while typing omitted pending text");
