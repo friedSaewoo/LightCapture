@@ -118,7 +118,7 @@ void Store::save(Document &d) {
         std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
         require((bool)f, "cannot open metadata");
         bool extended = std::any_of(d.commands.begin(), d.commands.end(), [](auto &c) {
-            return c.tool == Tool::CanvasSize || c.tool == Tool::PasteImage;
+            return c.tool == Tool::CanvasSize || c.tool == Tool::PasteImage || c.tool == Tool::CanvasPad;
         });
         uint32_t magic = extended ? 0x3344434c : 0x3244434c;
         put(f, magic);
@@ -189,7 +189,7 @@ static Document readDocument(const fs::path &path) {
         int t;
         uint32_t fill, n;
         get(f, t);
-        require(t >= 0 && t <= (int)Tool::PasteImage, "invalid tool");
+        require(t >= 0 && t <= (int)Tool::CanvasPad, "invalid tool");
         c.tool = (Tool)t;
         get(f, c.color);
         get(f, c.width);
@@ -237,13 +237,28 @@ static Document readDocument(const fs::path &path) {
             canvasH = d.height;
         }
         if (c.tool == Tool::CanvasSize || c.tool == Tool::PasteImage) {
-            require(c.rect.left >= 0 && c.rect.top >= 0 && rw(c.rect) > 0 && rh(c.rect) > 0 &&
-                        validCanvasSize(std::max(canvasW, c.rect.right), std::max(canvasH, c.rect.bottom)),
+            auto extent = canvasExtent(c);
+            bool origin = c.tool == Tool::PasteImage ? c.rect.left >= -32000 && c.rect.top >= -32000
+                                                     : c.rect.left >= 0 && c.rect.top >= 0;
+            require(origin && c.rect.right > 0 && c.rect.bottom > 0 &&
+                        validCanvasSize(rw(c.rect), rh(c.rect)) &&
+                        validCanvasSize(std::max(canvasW, extent.right), std::max(canvasH, extent.bottom)),
                     "invalid canvas extension or pasted image bounds");
             require(c.tool != Tool::PasteImage || (c.imageData && !c.imageData->empty()),
                     "pasted image bytes missing");
-            canvasW = std::max(canvasW, c.rect.right);
-            canvasH = std::max(canvasH, c.rect.bottom);
+            canvasW = std::max(canvasW, extent.right);
+            canvasH = std::max(canvasH, extent.bottom);
+        }
+        if (c.tool == Tool::CanvasPad) {
+            require(c.rect.left == 0 && c.rect.top == 0 && validCanvasSize(rw(c.rect), rh(c.rect)) &&
+                        c.points.size() == 3 && c.points[0].x >= 0 && c.points[0].y >= 0 &&
+                        c.points[1].x > c.points[0].x && c.points[1].y > c.points[0].y &&
+                        c.points[1].x <= canvasW && c.points[1].y <= canvasH && c.points[2].x >= 0 &&
+                        c.points[2].y >= 0 && c.points[1].x - c.points[0].x + c.points[2].x <= rw(c.rect) &&
+                        c.points[1].y - c.points[0].y + c.points[2].y <= rh(c.rect),
+                    "invalid top left canvas padding");
+            canvasW = rw(c.rect);
+            canvasH = rh(c.rect);
         }
         if (c.tool == Tool::CanvasSize)
             require(c.points.size() == 2 && c.points[0].x == c.rect.left && c.points[0].y == c.rect.top &&

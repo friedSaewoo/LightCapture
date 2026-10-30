@@ -4,7 +4,10 @@ namespace lc {
 HCURSOR App::canvasCursor(UINT dpi) {
     int canvasHit = canvasGrowing ? canvasGrowHit : canvasEdgeHit(canvasMouse);
     if (canvasHit)
-        return LoadCursor(nullptr, canvasHit == 10 ? IDC_SIZENWSE : canvasHit == 2 ? IDC_SIZEWE : IDC_SIZENS);
+        return LoadCursor(nullptr, canvasHit == 5 || canvasHit == 10  ? IDC_SIZENWSE
+                                   : canvasHit == 6 || canvasHit == 9 ? IDC_SIZENESW
+                                   : canvasHit & 3                    ? IDC_SIZEWE
+                                                                      : IDC_SIZENS);
     int textHandle = textMoving ? (textResize ? textResize : 16) : textHit(canvasMouse);
     if (textHandle) {
         auto cursor = textHandle == 5 || textHandle == 10  ? IDC_SIZENWSE
@@ -33,7 +36,7 @@ HCURSOR App::canvasCursor(UINT dpi) {
             return LoadCursor(nullptr, resizing ? IDC_SIZENWSE : IDC_SIZEALL);
         if (doc() && selectedObject >= 0 && selectedObject < (int)doc()->cursor) {
             auto q = toImage(canvasMouse);
-            auto r = doc()->commands[selectedObject].rect;
+            auto r = visibleCommand(*doc(), selectedObject).rect;
             if (inside(r, q))
                 return LoadCursor(nullptr, (std::abs(q.x - r.right) < 10 && std::abs(q.y - r.bottom) < 10)
                                                ? IDC_SIZENWSE
@@ -156,7 +159,7 @@ void App::edit(Command c) {
     clearPixelSelection();
     commit(*doc(), std::move(c));
     selectedObject = (int)doc()->cursor - 1;
-    if (doc()->commands.back().tool == Tool::CanvasSize)
+    if (doc()->commands.back().tool == Tool::CanvasSize || doc()->commands.back().tool == Tool::CanvasPad)
         selectedObject = -1;
     persist();
     rebuild();
@@ -177,9 +180,11 @@ void App::undo(bool redo) {
 }
 RECT App::imageBounds() {
     if (canvasGrowing)
-        return {canvasStartBounds.left, canvasStartBounds.top,
-                canvasStartBounds.left + (LONG)std::lround(rw(canvasGrowRect) * zoom),
-                canvasStartBounds.top + (LONG)std::lround(rh(canvasGrowRect) * zoom)};
+        return {
+            canvasStartBounds.left + (LONG)std::lround((canvasGrowRect.left - canvasBeforeView.left) * zoom),
+            canvasStartBounds.top + (LONG)std::lround((canvasGrowRect.top - canvasBeforeView.top) * zoom),
+            canvasStartBounds.left + (LONG)std::lround((canvasGrowRect.right - canvasBeforeView.left) * zoom),
+            canvasStartBounds.top + (LONG)std::lround((canvasGrowRect.bottom - canvasBeforeView.top) * zoom)};
     if (!doc())
         return {};
     RECT c;
@@ -271,19 +276,23 @@ void App::paintCanvas(HDC dc) {
             int edge = canvasGrowing ? canvasGrowHit : canvasEdgeHover;
             if (edge) {
                 Gdiplus::Pen accent(Color(theme::Blue), 2);
+                if (edge & 1)
+                    g.DrawLine(&accent, (int)b.left, (int)b.top, (int)b.left, (int)b.bottom);
+                if (edge & 4)
+                    g.DrawLine(&accent, (int)b.left, (int)b.top, (int)b.right, (int)b.top);
                 if (edge & 2)
                     g.DrawLine(&accent, (int)b.right, (int)b.top, (int)b.right, (int)b.bottom);
                 if (edge & 8)
                     g.DrawLine(&accent, (int)b.left, (int)b.bottom, (int)b.right, (int)b.bottom);
-                float x = edge == 8 ? (b.left + b.right) / 2.f : (float)b.right;
-                float y = edge == 2 ? (b.top + b.bottom) / 2.f : (float)b.bottom;
+                float x = edge & 1 ? (float)b.left : edge & 2 ? (float)b.right : (b.left + b.right) / 2.f;
+                float y = edge & 4 ? (float)b.top : edge & 8 ? (float)b.bottom : (b.top + b.bottom) / 2.f;
                 Gdiplus::SolidBrush knob(Color(theme::Blue));
                 g.FillEllipse(&knob, x - 3, y - 3, 6.f, 6.f);
             }
             paintPixelSelection(g, b, r);
             if (!dragging && tool == Tool::Select && selectedObject >= 0 &&
                 selectedObject < (int)doc()->cursor) {
-                auto q = doc()->commands[selectedObject].rect;
+                auto q = visibleCommand(*doc(), selectedObject).rect;
                 int x = b.left + (q.left - r.left) * zoom, y = b.top + (q.top - r.top) * zoom;
                 int w = std::max(1, (int)(rw(q) * zoom)), h = std::max(1, (int)(rh(q) * zoom));
                 Gdiplus::Pen outline(Color(255, 37, 99, 235), 1);
@@ -547,13 +556,14 @@ void App::canvasDown(POINT p) {
         selectedObject = -1;
         auto hidden = erased(*doc());
         for (int i = (int)doc()->cursor - 1; i >= 0; i--) {
-            auto &c = doc()->commands[i];
+            auto c = visibleCommand(*doc(), i);
             if (!hidden[i] && c.tool == Tool::PixelSelect)
                 break; // Earlier annotations are now part of the raster edit.
             RECT hit = c.rect;
             InflateRect(&hit, 8, 8);
             if (!hidden[i] && c.tool != Tool::Crop && c.tool != Tool::Erase && c.tool != Tool::Reset &&
-                c.tool != Tool::PixelSelect && c.tool != Tool::CanvasSize && inside(hit, q)) {
+                c.tool != Tool::PixelSelect && c.tool != Tool::CanvasSize && c.tool != Tool::CanvasPad &&
+                inside(hit, q)) {
                 draft = c;
                 draft.target = i;
                 selectedObject = i;
@@ -630,9 +640,10 @@ void App::canvasMove(POINT p) {
     q.x = std::clamp(q.x, vr.left, vr.right);
     q.y = std::clamp(q.y, vr.top, vr.bottom);
     if (tool == Tool::Select) {
-        auto &c = doc()->commands[draft.target];
+        int target = draft.target;
+        auto c = visibleCommand(*doc(), target);
         draft = c;
-        draft.target = (int)(&c - doc()->commands.data());
+        draft.target = target;
         if (resizing) {
             draft.rect.right = std::max(draft.rect.left + 1, q.x);
             draft.rect.bottom = std::max(draft.rect.top + 1, q.y);
@@ -720,7 +731,7 @@ void App::deleteObject() {
 void App::duplicateObject() {
     if (!doc() || selectedObject < 0 || selectedObject >= (int)doc()->cursor)
         return;
-    auto c = doc()->commands[selectedObject];
+    auto c = visibleCommand(*doc(), selectedObject);
     c.target = -1;
     OffsetRect(&c.rect, 16, 16);
     for (auto &p : c.points) {
@@ -732,7 +743,7 @@ void App::duplicateObject() {
 void App::editText() {
     if (!doc() || selectedObject < 0 || selectedObject >= (int)doc()->cursor)
         return;
-    auto c = doc()->commands[selectedObject];
+    auto c = visibleCommand(*doc(), selectedObject);
     if (c.tool != Tool::Text)
         return;
     c.target = selectedObject;
@@ -741,11 +752,11 @@ void App::editText() {
 void App::eraseAt(POINT p) {
     auto skip = erased(*doc());
     for (int i = (int)doc()->cursor - 1; i >= 0; i--) {
-        auto &c = doc()->commands[i];
+        auto c = visibleCommand(*doc(), i);
         if (!skip[i] && c.tool == Tool::PixelSelect)
             break;
         if (c.tool == Tool::Crop || c.tool == Tool::Erase || c.tool == Tool::Reset ||
-            c.tool == Tool::PixelSelect || c.tool == Tool::CanvasSize || skip[i])
+            c.tool == Tool::PixelSelect || c.tool == Tool::CanvasSize || c.tool == Tool::CanvasPad || skip[i])
             continue;
         RECT hit = c.rect;
         InflateRect(&hit, 10, 10);

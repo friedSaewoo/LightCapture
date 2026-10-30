@@ -6,8 +6,8 @@
 5 CURSOR "marker.cur"
 6 CURSOR "mosaic.cur"
 1 VERSIONINFO
- FILEVERSION 0,1,21,0
- PRODUCTVERSION 0,1,21,0
+ FILEVERSION 0,1,22,0
+ PRODUCTVERSION 0,1,22,0
  FILEOS VOS_NT_WINDOWS32
  FILETYPE VFT_APP
 BEGIN
@@ -17,7 +17,7 @@ BEGIN
   BEGIN
    VALUE "FileDescription", "LightCapture Windows 캡처 도구\0"
    VALUE "ProductName", "LightCapture\0"
-   VALUE "ProductVersion", "0.1.21\0"
+   VALUE "ProductVersion", "0.1.22\0"
   END
  END
  BLOCK "VarFileInfo"

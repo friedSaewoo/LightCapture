@@ -55,7 +55,7 @@ void App::verifyCanvas() {
     auto b = imageBounds();
     check(canvasEdgeHit({b.right, (b.top + b.bottom) / 2}) == 2 &&
               canvasEdgeHit({(b.left + b.right) / 2, b.bottom}) == 8 &&
-              canvasEdgeHit({b.right, b.bottom}) == 10 && canvasEdgeHit({b.left, b.top}) == 0,
+              canvasEdgeHit({b.right, b.bottom}) == 10 && canvasEdgeHit({b.left - 1, b.top - 1}) == 5,
           "canvas edge hit directions mismatch");
     canvasMove({b.right, b.bottom});
     check(canvasEdgeHover == 10 && canvasCursor(96) == LoadCursor(nullptr, IDC_SIZENWSE),
@@ -186,12 +186,132 @@ void App::verifyCanvas() {
         return b;
     };
     command(ID_PASTE_IMAGE);
-    check(rw(viewRect(*doc())) == 300 && rh(viewRect(*doc())) == 200 &&
-              color(*rendered, 299, 199) == 0xff06b6d4,
+    check(rw(viewRect(*doc())) == 364 && rh(viewRect(*doc())) == 264 &&
+              color(*rendered, 331, 231) == 0xff06b6d4 && color(*rendered, 363, 263) == 0xffffffff &&
+              doc()->commands.back().rect.left == 32 && doc()->commands.back().rect.top == 32,
           "large pasted image was cropped instead of expanding canvas");
+    auto largeRect = doc()->commands.back().rect;
+    auto corner = point(largeRect.right - 1, largeRect.bottom - 1);
+    canvasMouse = corner;
+    check(canvasEdgeHit(corner) == 0 && canvasCursor(96) == LoadCursor(nullptr, IDC_SIZENWSE),
+          "large image resize handle conflicts with canvas edge");
+    Store marginStore(store.root);
+    auto marginDoc = marginStore.read(*doc());
+    auto marginBase = loadImage(marginStore.png(marginDoc));
+    auto marginOutput = output(*marginBase, marginDoc);
+    check(marginOutput->GetWidth() == 364 && marginOutput->GetHeight() == 264 &&
+              color(*marginOutput, 350, 250) == 0xffffffff,
+          "large pasted image margin did not survive reload");
+    statusText(L"붙여넣은 이미지 둘레 32px 여백 · 이미지 조절점과 캔버스 테두리 분리");
+    canvasPreview(main, store.root / L"canvas-padding-preview.png");
+    RECT paddingWindow{};
+    GetWindowRect(main, &paddingWindow);
+    float paddingZoom = zoom;
+    SetWindowPos(main, nullptr, 0, 0, 720, 480, SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOZORDER);
+    RECT paddingClient{};
+    GetClientRect(canvas, &paddingClient);
+    zoom = std::min(1.f, std::min((rw(paddingClient) - 48.f) / 364, (rh(paddingClient) - 48.f) / 264));
+    panX = panY = 0;
+    canvasPreview(main, store.root / L"canvas-padding-720-preview.png");
+    SetWindowPos(main, nullptr, 0, 0, rw(paddingWindow), rh(paddingWindow),
+                 SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOZORDER);
+    zoom = paddingZoom;
+    panX = panY = 0;
     command(ID_UNDO);
     check(rw(viewRect(*doc())) == 240 && rh(viewRect(*doc())) == 110,
           "undo large paste retained auto expansion");
+    setTool(Tool::Pen);
+    selectedObject = -1;
+    auto stable = point(20, 20);
+    b = imageBounds();
+    canvasDown({b.left - 1, (b.top + b.bottom) / 2});
+    canvasMove({b.left - 40, (b.top + b.bottom) / 2});
+    auto grow = imageBounds();
+    check(grow.left == b.left - 40 && grow.right == b.right && rw(grow) == rw(b) + 40,
+          "left growth preview shifted the stationary right edge");
+    canvasUp({b.left - 40, (b.top + b.bottom) / 2});
+    check(rw(viewRect(*doc())) == 280 && color(*rendered, 60, 20) == 0xff2563eb &&
+              color(*rendered, 5, 20) == 0xffffffff && point(60, 20).x == stable.x,
+          "left canvas growth failed to preserve content pixels and screen anchor");
+    b = imageBounds();
+    canvasDown({(b.left + b.right) / 2, b.top - 1});
+    canvasUp({(b.left + b.right) / 2, b.top - 30});
+    check(rh(viewRect(*doc())) == 140 && color(*rendered, 60, 50) == 0xff2563eb &&
+              color(*rendered, 60, 5) == 0xffffffff,
+          "top canvas growth failed to add white padding");
+    canvasEdgeHover = 5;
+    statusText(L"위·왼쪽 가장자리도 흰색 여백 확장 · 기존 그림과 주석 위치 유지");
+    canvasPreview(main, store.root / L"canvas-top-left-preview.png");
+    canvasEdgeHover = 0;
+    Store paddedStore(store.root);
+    auto padded = paddedStore.read(*doc());
+    auto paddedBase = loadImage(paddedStore.png(padded));
+    auto paddedOutput = output(*paddedBase, padded);
+    check(paddedOutput->GetWidth() == 280 && paddedOutput->GetHeight() == 140 &&
+              color(*paddedOutput, 60, 50) == 0xff2563eb,
+          "top left canvas growth failed metadata roundtrip");
+    setTool(Tool::Select);
+    auto shifted = visibleCommand(*doc(), 0);
+    check(shifted.rect.left == 50 && shifted.rect.top == 40,
+          "old annotation bounds were not shifted with padding");
+    auto fromOld = point(60, 50);
+    canvasDown(fromOld);
+    canvasUp({fromOld.x + 10, fromOld.y + 10});
+    check(doc()->commands.back().target == 0 && doc()->commands.back().rect.left == 60 &&
+              color(*rendered, 75, 65) == 0xff2563eb,
+          "previous annotations cannot be moved after top left growth");
+    command(ID_UNDO);
+    command(ID_UNDO);
+    command(ID_UNDO);
+    check(rw(viewRect(*doc())) == 240 && rh(viewRect(*doc())) == 110 &&
+              color(*rendered, 20, 20) == 0xff2563eb,
+          "undo top left growth did not restore original geometry and edits");
+    setTool(Tool::Pen);
+    for (int hit : {1, 2, 4, 8, 5, 6, 9, 10}) {
+        b = imageBounds();
+        POINT at{hit & 1   ? b.left - 1
+                 : hit & 2 ? b.right
+                           : (b.left + b.right) / 2,
+                 hit & 4   ? b.top - 1
+                 : hit & 8 ? b.bottom
+                           : (b.top + b.bottom) / 2};
+        canvasMouse = at;
+        auto cursor = hit == 5 || hit == 10  ? IDC_SIZENWSE
+                      : hit == 6 || hit == 9 ? IDC_SIZENESW
+                      : hit & 3              ? IDC_SIZEWE
+                                             : IDC_SIZENS;
+        check(canvasEdgeHit(at) == hit && canvasCursor(96) == LoadCursor(nullptr, cursor),
+              "all side and corner canvas resize cursors must match");
+    }
+    b = imageBounds();
+    canvasDown({b.left - 1, b.top - 1});
+    canvasMove({b.left - 20, b.top - 20});
+    canvasProc(canvas, WM_KEYDOWN, VK_ESCAPE, 0);
+    check(rw(viewRect(*doc())) == 240 && rh(viewRect(*doc())) == 110, "Esc failed to cancel top left growth");
+    Command horizontal;
+    horizontal.tool = Tool::Pen;
+    horizontal.rect = {40, 50, 80, 50};
+    horizontal.points = {{40, 50}, {80, 50}};
+    horizontal.color = 0xff111827;
+    horizontal.width = 3;
+    edit(horizontal);
+    auto lineIndex = doc()->cursor - 1;
+    b = imageBounds();
+    canvasDown({b.left - 1, (b.top + b.bottom) / 2});
+    canvasUp({b.left - 20, (b.top + b.bottom) / 2});
+    auto shiftedLine = visibleCommand(*doc(), lineIndex);
+    check(shiftedLine.tool == Tool::Pen && shiftedLine.rect.left == 60 && shiftedLine.rect.top == 50,
+          "zero-height pen stroke disappeared from shifted object bounds");
+    setTool(Tool::Select);
+    auto onLine = point(80, 50);
+    canvasDown(onLine);
+    canvasUp({onLine.x + 10, onLine.y + 10});
+    check(doc()->commands.back().target == (int)lineIndex && doc()->commands.back().rect.top == 60,
+          "horizontal pen stroke cannot be moved after left expansion");
+    command(ID_UNDO);
+    command(ID_UNDO);
+    command(ID_UNDO);
+    setTool(Tool::Pen);
     Command cropView;
     cropView.tool = Tool::Crop;
     cropView.rect = {20, 10, 80, 60};
@@ -242,6 +362,8 @@ void App::verifyCanvas() {
               "  \"paste_png_dib_v5_transparency_and_invalid_data\": true,\n"
               "  \"pasted_image_move_resize_undo_save_reload\": true,\n"
               "  \"large_paste_expands_canvas_atomically\": true,\n"
+              "  \"all_edges_top_left_anchor_undo_and_object_editing\": true,\n"
+              "  \"large_paste_has_32px_surrounding_margin\": true,\n"
               "  \"preview_buffers_reused_and_released\": true,\n"
               "  \"computer_use\": false,\n  \"system_clipboard_read\": false,\n  "
               "\"system_clipboard_modified\": false\n}\n";

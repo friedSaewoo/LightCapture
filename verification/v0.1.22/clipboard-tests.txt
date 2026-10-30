@@ -1,0 +1,12 @@
+PASS clipboard test uses only a hidden own window
+PASS capture pixels survive GDI buffer destruction and zero source alpha
+PASS explicit DIB has standard 24-bit header and padded bottom-up rows
+PASS PNG decodes to original dimensions
+PASS DIBV5 supplies image size, color space and rendering intent
+PASS PNG, explicit DIB and DIBV5 match every pixel with opaque alpha
+PASS explicit DIB has standard 24-bit header and padded bottom-up rows
+PASS PNG decodes to original dimensions
+PASS DIBV5 supplies image size, color space and rendering intent
+PASS PNG, explicit DIB and DIBV5 match every pixel with opaque alpha
+PASS transparent and partial-alpha pixels are composited onto white consistently
+RESULT 11 passed, 0 failed; user clipboard untouched

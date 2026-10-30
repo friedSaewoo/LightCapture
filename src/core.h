@@ -33,7 +33,7 @@ using Gdiplus::Color;
 using Gdiplus::Graphics;
 using Image = std::unique_ptr<Bitmap>;
 inline const wchar_t *AppName = L"LightCapture";
-inline const wchar_t *Version = L"0.1.21";
+inline const wchar_t *Version = L"0.1.22";
 inline RECT normalized(POINT a, POINT b) {
     return {std::min(a.x, b.x), std::min(a.y, b.y), std::max(a.x, b.x), std::max(a.y, b.y)};
 }
@@ -283,7 +283,8 @@ enum class Tool : int {
     Reset,
     PixelSelect,
     CanvasSize,
-    PasteImage
+    PasteImage,
+    CanvasPad
 };
 enum class Mode : int { Rectangle, Freeform, Window, Unit, Fullscreen, Scroll, Fixed };
 struct Command {
@@ -307,6 +308,38 @@ struct Document {
     size_t cursor = 0;
     bool loaded = true;
 };
+inline RECT canvasExtent(const Command &c) {
+    auto r = c.rect;
+    if (c.tool == Tool::PasteImage && c.fill) {
+        r.right += (LONG)c.fontSize;
+        r.bottom += (LONG)c.fontSize;
+    }
+    return r;
+}
+inline Command visibleCommand(const Document &d, size_t index) {
+    auto c = d.commands[index];
+    for (size_t i = index + 1; i < d.cursor; ++i) {
+        auto &pad = d.commands[i];
+        if (pad.tool != Tool::CanvasPad || pad.points.size() != 3)
+            continue;
+        RECT previous{pad.points[0].x, pad.points[0].y, pad.points[1].x, pad.points[1].y};
+        auto coverage = c.rect;
+        coverage.right = std::max(coverage.right, coverage.left + 1);
+        coverage.bottom = std::max(coverage.bottom, coverage.top + 1);
+        if (rw(bounded(coverage, previous)) <= 0 || rh(bounded(coverage, previous)) <= 0) {
+            c.rect = {};
+            c.tool = Tool::Reset;
+            return c;
+        }
+        LONG dx = pad.points[2].x - previous.left, dy = pad.points[2].y - previous.top;
+        OffsetRect(&c.rect, dx, dy);
+        for (auto &point : c.points) {
+            point.x += dx;
+            point.y += dy;
+        }
+    }
+    return c;
+}
 inline RECT viewRect(const Document &d) {
     RECT r{0, 0, (LONG)d.width, (LONG)d.height};
     if (!d.loaded)
@@ -316,11 +349,12 @@ inline RECT viewRect(const Document &d) {
             r = {0, 0, (LONG)d.width, (LONG)d.height};
         else if (d.commands[i].tool == Tool::Crop)
             r = bounded(d.commands[i].rect, r);
-        else if (d.commands[i].tool == Tool::CanvasSize)
+        else if (d.commands[i].tool == Tool::CanvasSize || d.commands[i].tool == Tool::CanvasPad)
             r = d.commands[i].rect;
         else if (d.commands[i].tool == Tool::PasteImage) {
-            r.right = std::max(r.right, d.commands[i].rect.right);
-            r.bottom = std::max(r.bottom, d.commands[i].rect.bottom);
+            auto extent = canvasExtent(d.commands[i]);
+            r.right = std::max(r.right, extent.right);
+            r.bottom = std::max(r.bottom, extent.bottom);
         }
     return r;
 }
@@ -517,28 +551,54 @@ inline void drawPixelPatch(Graphics &g, Bitmap &patch, Gdiplus::RectF destinatio
     require(result == Gdiplus::Ok, "selected pixels could not be drawn");
 }
 inline Image render(Bitmap &original, const Document &d) {
-    LONG width = original.GetWidth(), height = original.GetHeight();
-    for (size_t i = 0; i < d.cursor; ++i) {
-        auto &c = d.commands[i];
-        if (c.tool == Tool::Reset) {
-            width = original.GetWidth();
-            height = original.GetHeight();
-        } else if (c.tool == Tool::CanvasSize || c.tool == Tool::PasteImage) {
-            width = std::max(width, c.rect.right);
-            height = std::max(height, c.rect.bottom);
+    auto out = clone(original);
+    auto ensure = [&](LONG width, LONG height) {
+        width = std::max<LONG>(width, out->GetWidth());
+        height = std::max<LONG>(height, out->GetHeight());
+        require(validCanvasSize(width, height), "canvas exceeds size limit");
+        if (width == (LONG)out->GetWidth() && height == (LONG)out->GetHeight())
+            return;
+        auto expanded = std::make_unique<Bitmap>(width, height, PixelFormat32bppARGB);
+        {
+            Graphics g(expanded.get());
+            g.Clear(Color::White);
+            g.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
+            g.DrawImage(out.get(), 0, 0, (int)out->GetWidth(), (int)out->GetHeight());
         }
-    }
-    require(validCanvasSize(width, height), "canvas exceeds 64 megapixel limit");
-    auto out = std::make_unique<Bitmap>(width, height, PixelFormat32bppARGB);
-    {
-        Graphics g(out.get());
-        g.Clear(Color::White);
-        g.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
-        g.DrawImage(&original, 0, 0, (int)original.GetWidth(), (int)original.GetHeight());
-    }
+        out = std::move(expanded);
+    };
     auto skip = erased(d);
-    for (size_t i = 0; i < d.cursor; i++) {
+    size_t begin = 0;
+    for (size_t i = 0; i < d.cursor; ++i)
+        if (d.commands[i].tool == Tool::Reset)
+            begin = i + 1;
+    for (size_t i = begin; i < d.cursor; i++) {
         auto &c = d.commands[i];
+        if (c.tool == Tool::PasteImage) {
+            auto extent = canvasExtent(c);
+            ensure(extent.right, extent.bottom);
+        }
+        if (skip[i])
+            continue;
+        if (c.tool == Tool::CanvasPad && c.points.size() == 3) {
+            require(validCanvasSize(rw(c.rect), rh(c.rect)), "canvas pad dimensions invalid");
+            RECT source{c.points[0].x, c.points[0].y, c.points[1].x, c.points[1].y};
+            auto patch = crop(*out, source);
+            auto padded = std::make_unique<Bitmap>(rw(c.rect), rh(c.rect), PixelFormat32bppARGB);
+            {
+                Graphics g(padded.get());
+                g.Clear(Color::White);
+                g.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
+                g.DrawImage(patch.get(), (int)c.points[2].x, (int)c.points[2].y, (int)patch->GetWidth(),
+                            (int)patch->GetHeight());
+            }
+            out = std::move(padded);
+            continue;
+        }
+        if (c.tool == Tool::CanvasSize || c.tool == Tool::PasteImage) {
+            auto extent = canvasExtent(c);
+            ensure(extent.right, extent.bottom);
+        }
         if (c.tool == Tool::CanvasSize && c.points.size() == 2 && !skip[i]) {
             Graphics g(out.get());
             g.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
@@ -578,6 +638,8 @@ inline Image render(Bitmap &original, const Document &d) {
             drawCommand(g, c);
         }
     }
+    auto finalView = viewRect(d);
+    ensure(finalView.right, finalView.bottom);
     return out;
 }
 inline Image output(Bitmap &original, const Document &d) {
