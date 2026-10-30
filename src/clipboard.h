@@ -6,4 +6,6 @@ struct ClipboardImage {
 };
 ClipboardImage makeClipboardImage(Bitmap &image);
 bool publishClipboardImage(HWND owner, const ClipboardImage &image);
+Image decodeClipboardDib(const std::vector<BYTE> &bytes);
+Image readClipboardImage(HWND owner);
 } // namespace lc

@@ -188,6 +188,9 @@ void App::show() {
     SetFocus(canvas);
 }
 void App::hide() {
+    finishCanvasGrow(true);
+    objectPreview.reset();
+    objectBackdrop.reset();
     finishText();
     clearPixelSelection();
     saveView();
@@ -349,6 +352,11 @@ void App::layout() {
     MoveWindow(canvas, railWidth, top, std::max(1, sidebar - railWidth), canvasHeight, TRUE);
 }
 void App::command(UINT id) {
+    if (canvasGrowing) {
+        finishCanvasGrow(true);
+        if (id == ID_UNDO)
+            return;
+    }
     if (id >= ID_PALETTE && id < ID_PALETTE + PaletteCount) {
         setColor(Palette[id - ID_PALETTE].value);
         return;
@@ -413,6 +421,9 @@ void App::command(UINT id) {
         break;
     case ID_COPY:
         copy();
+        break;
+    case ID_PASTE_IMAGE:
+        pasteImage();
         break;
     case ID_SAVE:
         saveChecked();
@@ -530,7 +541,7 @@ void App::command(UINT id) {
         DestroyWindow(main);
         break;
     case ID_ABOUT:
-        message(main, L"LightCapture 0.1.20\n전역 캡처 · 통합 편집 · 최근 캡처\n\nCtrl + Shift + X "
+        message(main, L"LightCapture 0.1.21\n전역 캡처 · 통합 편집 · 최근 캡처\n\nCtrl + Shift + X "
                       L"(환경설정에서 변경)\n닫기: 트레이 대기 / 파일 메뉴: 프로그램 종료\n\n성능·알캡처 "
                       L"동등성 전체 검증은 아직 완료되지 않았습니다.");
         break;
@@ -573,6 +584,7 @@ LRESULT CALLBACK App::mainProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             item(capture, ID_SCROLLMANUAL, L"수동 스크롤 캡처");
             item(capture, ID_MONITOR, L"마우스가 있는 모니터 캡처");
             item(edit, ID_COPY, L"이미지 복사\tCtrl+C");
+            item(edit, ID_PASTE_IMAGE, L"이미지 붙여넣기\tCtrl+V");
             item(edit, ID_ORIGINAL, L"원본으로 복원...");
             item(edit, ID_DELETE, L"체크한 캡처 삭제...\tDelete");
             item(edit, ID_DUPLICATE, L"선택 개체 복제\tCtrl+D");
@@ -1118,6 +1130,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
             if (smoke)
                 SetTimer(instance.main, 99, 15000, nullptr);
             std::vector<ACCEL> keys = {{FVIRTKEY | FCONTROL, 'C', ID_COPY},
+                                       {FVIRTKEY | FCONTROL, 'V', ID_PASTE_IMAGE},
                                        {FVIRTKEY | FCONTROL, 'N', ID_NEW_CANVAS},
                                        {FVIRTKEY | FCONTROL, 'Z', ID_UNDO},
                                        {FVIRTKEY | FCONTROL, 'S', ID_SAVE_CURRENT},

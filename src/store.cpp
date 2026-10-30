@@ -117,7 +117,10 @@ void Store::save(Document &d) {
     {
         std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
         require((bool)f, "cannot open metadata");
-        uint32_t magic = 0x3244434c;
+        bool extended = std::any_of(d.commands.begin(), d.commands.end(), [](auto &c) {
+            return c.tool == Tool::CanvasSize || c.tool == Tool::PasteImage;
+        });
+        uint32_t magic = extended ? 0x3344434c : 0x3244434c;
         put(f, magic);
         str(f, d.id);
         str(f, d.name);
@@ -126,6 +129,7 @@ void Store::save(Document &d) {
         uint32_t count = d.commands.size(), cursor = d.cursor;
         put(f, count);
         put(f, cursor);
+        std::vector<std::shared_ptr<const std::vector<BYTE>>> images;
         for (auto &c : d.commands) {
             int tool = (int)c.tool;
             put(f, tool);
@@ -142,6 +146,20 @@ void Store::save(Document &d) {
             uint32_t n = c.points.size();
             put(f, n);
             f.write((char *)c.points.data(), n * sizeof(POINT));
+            if (extended) {
+                auto same = std::find(images.begin(), images.end(), c.imageData);
+                if (c.imageData && same != images.end()) {
+                    put(f, UINT32_MAX);
+                    put(f, (uint32_t)(same - images.begin()));
+                    images.push_back(c.imageData);
+                    continue;
+                }
+                uint32_t bytes = c.imageData ? (uint32_t)c.imageData->size() : 0;
+                put(f, bytes);
+                if (bytes)
+                    f.write((const char *)c.imageData->data(), bytes);
+                images.push_back(c.imageData);
+            }
         }
         f.flush();
         require((bool)f, "metadata write failed");
@@ -153,7 +171,7 @@ static Document readDocument(const fs::path &path) {
     std::ifstream f(path, std::ios::binary);
     uint32_t magic, count, cursor;
     get(f, magic);
-    require(magic == 0x3144434c || magic == 0x3244434c, "unknown metadata version");
+    require(magic == 0x3144434c || magic == 0x3244434c || magic == 0x3344434c, "unknown metadata version");
     d.id = str(f);
     require(d.id == path.stem().wstring(), "metadata ID mismatch");
     d.name = str(f);
@@ -164,12 +182,14 @@ static Document readDocument(const fs::path &path) {
     get(f, cursor);
     require(count <= 10000 && cursor <= count, "invalid command count");
     d.cursor = cursor;
+    LONG canvasW = d.width, canvasH = d.height;
+    uint64_t embeddedBytes = 0;
     for (uint32_t i = 0; i < count; i++) {
         Command c;
         int t;
         uint32_t fill, n;
         get(f, t);
-        require(t >= 0 && t <= (int)Tool::PixelSelect, "invalid tool");
+        require(t >= 0 && t <= (int)Tool::PasteImage, "invalid tool");
         c.tool = (Tool)t;
         get(f, c.color);
         get(f, c.width);
@@ -178,7 +198,7 @@ static Document readDocument(const fs::path &path) {
         c.fill = fill;
         get(f, c.rect);
         get(f, c.fontSize);
-        if (magic == 0x3244434c) {
+        if (magic != 0x3144434c) {
             get(f, c.fontStyle);
             require(c.fontStyle >= 0 && c.fontStyle <= 15, "invalid font style");
         }
@@ -191,15 +211,54 @@ static Document readDocument(const fs::path &path) {
         c.points.resize(n);
         f.read((char *)c.points.data(), n * sizeof(POINT));
         require((bool)f, "truncated points");
+        if (magic == 0x3344434c) {
+            uint32_t size;
+            get(f, size);
+            if (size == UINT32_MAX) {
+                uint32_t index;
+                get(f, index);
+                require(index < d.commands.size() && d.commands[index].imageData,
+                        "invalid embedded image reference");
+                c.imageData = d.commands[index].imageData;
+                size = 0;
+            }
+            embeddedBytes += size;
+            require(size <= 64u * 1024 * 1024 && embeddedBytes <= 128ull * 1024 * 1024,
+                    "embedded image bytes exceed limit");
+            if (size) {
+                auto bytes = std::make_shared<std::vector<BYTE>>(size);
+                f.read((char *)bytes->data(), size);
+                require((bool)f, "truncated embedded image");
+                c.imageData = bytes;
+            }
+        }
+        if (c.tool == Tool::Reset) {
+            canvasW = d.width;
+            canvasH = d.height;
+        }
+        if (c.tool == Tool::CanvasSize || c.tool == Tool::PasteImage) {
+            require(c.rect.left >= 0 && c.rect.top >= 0 && rw(c.rect) > 0 && rh(c.rect) > 0 &&
+                        validCanvasSize(std::max(canvasW, c.rect.right), std::max(canvasH, c.rect.bottom)),
+                    "invalid canvas extension or pasted image bounds");
+            require(c.tool != Tool::PasteImage || (c.imageData && !c.imageData->empty()),
+                    "pasted image bytes missing");
+            canvasW = std::max(canvasW, c.rect.right);
+            canvasH = std::max(canvasH, c.rect.bottom);
+        }
+        if (c.tool == Tool::CanvasSize)
+            require(c.points.size() == 2 && c.points[0].x == c.rect.left && c.points[0].y == c.rect.top &&
+                        c.points[1].x > c.rect.left && c.points[1].y > c.rect.top &&
+                        c.points[1].x <= c.rect.right && c.points[1].y <= c.rect.bottom,
+                    "invalid canvas expansion source");
         if (c.tool == Tool::PixelSelect) {
             require((c.points.size() == 1 || c.points.size() == 2) && c.rect.left >= 0 && c.rect.top >= 0 &&
-                        c.rect.right > c.rect.left && c.rect.bottom > c.rect.top &&
-                        c.rect.right <= (LONG)d.width && c.rect.bottom <= (LONG)d.height,
+                        c.rect.right > c.rect.left && c.rect.bottom > c.rect.top && c.rect.right <= canvasW &&
+                        c.rect.bottom <= canvasH,
                     "invalid pixel selection source");
             auto destination = pixelDestination(c);
             require(destination.left >= 0 && destination.top >= 0 && destination.right > destination.left &&
-                        destination.bottom > destination.top && destination.right <= (LONG)d.width &&
-                        destination.bottom <= (LONG)d.height,
+                        destination.bottom > destination.top && destination.right <= canvasW &&
+                        destination.bottom <= canvasH,
                     "invalid pixel selection destination");
         }
         d.commands.push_back(std::move(c));

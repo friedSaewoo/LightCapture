@@ -8,6 +8,7 @@
 #include <windowsx.h>
 #include <algorithm>
 #include <cmath>
+#include <climits>
 #include <commctrl.h>
 #include <commdlg.h>
 #include <cstdint>
@@ -32,7 +33,7 @@ using Gdiplus::Color;
 using Gdiplus::Graphics;
 using Image = std::unique_ptr<Bitmap>;
 inline const wchar_t *AppName = L"LightCapture";
-inline const wchar_t *Version = L"0.1.20";
+inline const wchar_t *Version = L"0.1.21";
 inline RECT normalized(POINT a, POINT b) {
     return {std::min(a.x, b.x), std::min(a.y, b.y), std::max(a.x, b.x), std::max(a.y, b.y)};
 }
@@ -146,6 +147,48 @@ inline Image loadImage(const fs::path &p) {
 inline Image clone(Bitmap &b) {
     return Image(b.Clone(0, 0, b.GetWidth(), b.GetHeight(), PixelFormat32bppARGB));
 }
+inline bool validCanvasSize(LONG w, LONG h) {
+    return w > 0 && h > 0 && w <= 32000 && h <= 32000 && (uint64_t)w * h <= 64ull * 1024 * 1024;
+}
+inline Image decodeImageBytes(const std::vector<BYTE> &bytes) {
+    require(!bytes.empty() && bytes.size() <= 256ull * 1024 * 1024, "image data size invalid");
+    IStream *raw = nullptr;
+    require(SUCCEEDED(CreateStreamOnHGlobal(nullptr, TRUE, &raw)), "image stream unavailable");
+    std::unique_ptr<IStream, void (*)(IStream *)> stream(raw, [](IStream *s) { s->Release(); });
+    ULONG written = 0;
+    LARGE_INTEGER zero{};
+    require(SUCCEEDED(stream->Write(bytes.data(), (ULONG)bytes.size(), &written)) &&
+                written == bytes.size() && SUCCEEDED(stream->Seek(zero, STREAM_SEEK_SET, nullptr)),
+            "image stream copy failed");
+    Bitmap decoded(stream.get());
+    require(decoded.GetLastStatus() == Gdiplus::Ok &&
+                validCanvasSize(decoded.GetWidth(), decoded.GetHeight()),
+            "image dimensions invalid");
+    auto owned = std::make_unique<Bitmap>(decoded.GetWidth(), decoded.GetHeight(), PixelFormat32bppARGB);
+    Graphics g(owned.get());
+    g.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
+    require(g.DrawImage(&decoded, 0, 0, (int)decoded.GetWidth(), (int)decoded.GetHeight()) == Gdiplus::Ok,
+            "decoded image pixel copy failed");
+    return owned;
+}
+inline std::shared_ptr<const std::vector<BYTE>> encodeImageBytes(Bitmap &image) {
+    IStream *raw = nullptr;
+    require(SUCCEEDED(CreateStreamOnHGlobal(nullptr, TRUE, &raw)), "image encoding stream unavailable");
+    std::unique_ptr<IStream, void (*)(IStream *)> stream(raw, [](IStream *s) { s->Release(); });
+    auto codec = encoder(L"image/png");
+    require(image.Save(stream.get(), &codec, nullptr) == Gdiplus::Ok, "image encoding failed");
+    STATSTG stat{};
+    require(SUCCEEDED(stream->Stat(&stat, STATFLAG_NONAME)) && stat.cbSize.QuadPart > 0 &&
+                stat.cbSize.QuadPart <= 64ull * 1024 * 1024,
+            "embedded image exceeds limit");
+    auto bytes = std::make_shared<std::vector<BYTE>>((size_t)stat.cbSize.QuadPart);
+    LARGE_INTEGER zero{};
+    ULONG read = 0;
+    require(SUCCEEDED(stream->Seek(zero, STREAM_SEEK_SET, nullptr)) &&
+                SUCCEEDED(stream->Read(bytes->data(), (ULONG)bytes->size(), &read)) && read == bytes->size(),
+            "encoded image bytes unavailable");
+    return bytes;
+}
 inline Image grabFromDC(HDC source, RECT r, bool cursor = false) {
     require(rw(r) > 0 && rh(r) > 0, "empty capture");
     require((uint64_t)rw(r) * rh(r) * 4 <= 512ull * 1024 * 1024, "screen exceeds 512 MiB capture limit");
@@ -238,7 +281,9 @@ enum class Tool : int {
     Crop,
     Erase,
     Reset,
-    PixelSelect
+    PixelSelect,
+    CanvasSize,
+    PasteImage
 };
 enum class Mode : int { Rectangle, Freeform, Window, Unit, Fullscreen, Scroll, Fixed };
 struct Command {
@@ -253,6 +298,7 @@ struct Command {
     float fontSize = 20;
     int fontStyle = 0;
     int target = -1;
+    std::shared_ptr<const std::vector<BYTE>> imageData;
 };
 struct Document {
     std::wstring id, name;
@@ -270,6 +316,12 @@ inline RECT viewRect(const Document &d) {
             r = {0, 0, (LONG)d.width, (LONG)d.height};
         else if (d.commands[i].tool == Tool::Crop)
             r = bounded(d.commands[i].rect, r);
+        else if (d.commands[i].tool == Tool::CanvasSize)
+            r = d.commands[i].rect;
+        else if (d.commands[i].tool == Tool::PasteImage) {
+            r.right = std::max(r.right, d.commands[i].rect.right);
+            r.bottom = std::max(r.bottom, d.commands[i].rect.bottom);
+        }
     return r;
 }
 inline void commit(Document &d, Command c) {
@@ -384,6 +436,17 @@ inline Image boxedText(const Command &c) {
     return result;
 }
 inline void drawCommand(Graphics &g, const Command &c) {
+    if (c.tool == Tool::PasteImage && c.imageData) {
+        auto image = decodeImageBytes(*c.imageData);
+        auto state = g.Save();
+        g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+        Gdiplus::ImageAttributes attributes;
+        attributes.SetWrapMode(Gdiplus::WrapModeTileFlipXY);
+        g.DrawImage(image.get(), Gdiplus::Rect(c.rect.left, c.rect.top, rw(c.rect), rh(c.rect)), 0, 0,
+                    image->GetWidth(), image->GetHeight(), Gdiplus::UnitPixel, &attributes);
+        g.Restore(state);
+        return;
+    }
     Gdiplus::Pen pen(Color(c.color), c.width);
     pen.SetStartCap(Gdiplus::LineCapRound);
     pen.SetEndCap(Gdiplus::LineCapRound);
@@ -454,11 +517,42 @@ inline void drawPixelPatch(Graphics &g, Bitmap &patch, Gdiplus::RectF destinatio
     require(result == Gdiplus::Ok, "selected pixels could not be drawn");
 }
 inline Image render(Bitmap &original, const Document &d) {
-    auto out = clone(original);
+    LONG width = original.GetWidth(), height = original.GetHeight();
+    for (size_t i = 0; i < d.cursor; ++i) {
+        auto &c = d.commands[i];
+        if (c.tool == Tool::Reset) {
+            width = original.GetWidth();
+            height = original.GetHeight();
+        } else if (c.tool == Tool::CanvasSize || c.tool == Tool::PasteImage) {
+            width = std::max(width, c.rect.right);
+            height = std::max(height, c.rect.bottom);
+        }
+    }
+    require(validCanvasSize(width, height), "canvas exceeds 64 megapixel limit");
+    auto out = std::make_unique<Bitmap>(width, height, PixelFormat32bppARGB);
+    {
+        Graphics g(out.get());
+        g.Clear(Color::White);
+        g.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
+        g.DrawImage(&original, 0, 0, (int)original.GetWidth(), (int)original.GetHeight());
+    }
     auto skip = erased(d);
     for (size_t i = 0; i < d.cursor; i++) {
         auto &c = d.commands[i];
-        if (skip[i] || c.tool == Tool::Crop || c.tool == Tool::Erase || c.tool == Tool::Reset)
+        if (c.tool == Tool::CanvasSize && c.points.size() == 2 && !skip[i]) {
+            Graphics g(out.get());
+            g.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
+            Gdiplus::SolidBrush white(Color::White);
+            auto previousRight = c.points[1].x, previousBottom = c.points[1].y;
+            if (c.rect.right > previousRight)
+                g.FillRectangle(&white, (int)previousRight, (int)c.rect.top, c.rect.right - previousRight,
+                                rh(c.rect));
+            if (c.rect.bottom > previousBottom)
+                g.FillRectangle(&white, (int)c.rect.left, (int)previousBottom, previousRight - c.rect.left,
+                                c.rect.bottom - previousBottom);
+        }
+        if (skip[i] || c.tool == Tool::Crop || c.tool == Tool::Erase || c.tool == Tool::Reset ||
+            c.tool == Tool::CanvasSize)
             continue;
         if (c.tool == Tool::PixelSelect && !c.points.empty()) {
             auto source = bounded(c.rect, {0, 0, (LONG)out->GetWidth(), (LONG)out->GetHeight()});

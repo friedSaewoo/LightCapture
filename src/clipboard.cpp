@@ -136,4 +136,130 @@ bool publishClipboardImage(HWND owner, const ClipboardImage &image) {
     require(pngOk && v5Ok, "clipboard supplementary image transfer failed");
     return true;
 }
+Image decodeClipboardDib(const std::vector<BYTE> &bytes) {
+    require(bytes.size() >= sizeof(BITMAPINFOHEADER), "clipboard DIB header truncated");
+    BITMAPINFOHEADER header{};
+    memcpy(&header, bytes.data(), sizeof(header));
+    require(header.biSize >= 40 && header.biSize <= 124 && header.biSize <= bytes.size() &&
+                header.biWidth > 0 && header.biHeight != LONG_MIN && header.biHeight != 0 &&
+                header.biPlanes == 1 && validCanvasSize(header.biWidth, std::abs(header.biHeight)) &&
+                (header.biBitCount == 1 || header.biBitCount == 4 || header.biBitCount == 8 ||
+                 header.biBitCount == 16 || header.biBitCount == 24 || header.biBitCount == 32) &&
+                (header.biCompression == BI_RGB || header.biCompression == BI_BITFIELDS ||
+                 header.biCompression == 6),
+            "clipboard DIB format invalid");
+    uint64_t colors = header.biClrUsed;
+    if (!colors && header.biBitCount <= 8)
+        colors = 1ull << header.biBitCount;
+    uint64_t offset = header.biSize + colors * 4;
+    if (header.biSize == 40 && header.biCompression != BI_RGB)
+        offset += header.biCompression == 6 ? 16 : 12;
+    uint64_t stride = (((uint64_t)header.biWidth * header.biBitCount + 31) / 32) * 4;
+    uint64_t pixels = stride * std::abs(header.biHeight);
+    require(offset <= bytes.size() && pixels <= bytes.size() - offset, "clipboard DIB pixels truncated");
+    std::vector<BYTE> bmp(sizeof(BITMAPFILEHEADER) + offset + pixels);
+    BITMAPFILEHEADER file{};
+    file.bfType = 0x4d42;
+    file.bfSize = (DWORD)bmp.size();
+    file.bfOffBits = (DWORD)(sizeof(file) + offset);
+    memcpy(bmp.data(), &file, sizeof(file));
+    memcpy(bmp.data() + sizeof(file), bytes.data(), (size_t)(offset + pixels));
+    if (header.biBitCount == 32 && header.biCompression == BI_RGB)
+        for (uint64_t i = 3; i < pixels; i += 4)
+            bmp[(size_t)(sizeof(file) + offset + i)] = 255;
+    auto image = decodeImageBytes(bmp);
+    // Classic DIB alpha is unspecified. Only a V5 explicit alpha mask carries transparency.
+    bool alpha = false;
+    if (header.biSize >= 56 && header.biCompression != BI_RGB) {
+        DWORD mask{};
+        memcpy(&mask, bytes.data() + 52, sizeof(mask));
+        alpha = mask != 0;
+    }
+    if (!alpha) {
+        Gdiplus::BitmapData data{};
+        Gdiplus::Rect area(0, 0, image->GetWidth(), image->GetHeight());
+        require(image->LockBits(&area, Gdiplus::ImageLockModeRead | Gdiplus::ImageLockModeWrite,
+                                PixelFormat32bppARGB, &data) == Gdiplus::Ok,
+                "clipboard alpha unavailable");
+        for (int y = 0; y < area.Height; ++y) {
+            auto row = (BYTE *)data.Scan0 + (ptrdiff_t)y * data.Stride;
+            for (int x = 0; x < area.Width; ++x)
+                row[x * 4 + 3] = 255;
+        }
+        image->UnlockBits(&data);
+    }
+    return image;
+}
+Image readClipboardImage(HWND owner) {
+    bool opened = false;
+    for (int i = 0; i < 6; ++i) {
+        if (OpenClipboard(owner)) {
+            opened = true;
+            break;
+        }
+        Sleep(20);
+    }
+    if (!opened)
+        return {};
+    struct Close {
+        ~Close() {
+            CloseClipboard();
+        }
+    } close;
+    auto read = [&](UINT format) {
+        std::vector<BYTE> bytes;
+        if (!IsClipboardFormatAvailable(format))
+            return bytes;
+        auto memory = GetClipboardData(format);
+        auto size = memory ? GlobalSize(memory) : 0;
+        if (!size || size > 256ull * 1024 * 1024)
+            return bytes;
+        auto data = (const BYTE *)GlobalLock(memory);
+        if (data) {
+            bytes.assign(data, data + size);
+            GlobalUnlock(memory);
+        }
+        return bytes;
+    };
+    auto png = read(RegisterClipboardFormatW(L"PNG"));
+    if (!png.empty()) {
+        try {
+            return decodeImageBytes(png);
+        } catch (const std::exception &) {
+        }
+    }
+    for (auto format : {CF_DIBV5, CF_DIB}) {
+        auto bytes = read(format);
+        if (!bytes.empty()) {
+            try {
+                return decodeClipboardDib(bytes);
+            } catch (const std::exception &) {
+            }
+        }
+    }
+    auto handle = (HBITMAP)GetClipboardData(CF_BITMAP);
+    if (handle) {
+        BITMAP info{};
+        if (GetObjectW(handle, sizeof(info), &info) &&
+            validCanvasSize(info.bmWidth, std::abs(info.bmHeight))) {
+            BITMAPINFO dib{};
+            dib.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+            dib.bmiHeader.biWidth = info.bmWidth;
+            dib.bmiHeader.biHeight = -std::abs(info.bmHeight);
+            dib.bmiHeader.biPlanes = 1;
+            dib.bmiHeader.biBitCount = 32;
+            dib.bmiHeader.biCompression = BI_RGB;
+            std::vector<BYTE> bytes(sizeof(BITMAPINFOHEADER) +
+                                    (size_t)info.bmWidth * std::abs(info.bmHeight) * 4);
+            memcpy(bytes.data(), &dib.bmiHeader, sizeof(BITMAPINFOHEADER));
+            HDC dc = CreateCompatibleDC(nullptr);
+            auto rows = GetDIBits(dc, handle, 0, std::abs(info.bmHeight),
+                                  bytes.data() + sizeof(BITMAPINFOHEADER), &dib, DIB_RGB_COLORS);
+            DeleteDC(dc);
+            if (rows == std::abs(info.bmHeight))
+                return decodeClipboardDib(bytes);
+        }
+    }
+    return {};
+}
 } // namespace lc

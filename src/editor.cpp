@@ -2,6 +2,9 @@
 #include "theme.h"
 namespace lc {
 HCURSOR App::canvasCursor(UINT dpi) {
+    int canvasHit = canvasGrowing ? canvasGrowHit : canvasEdgeHit(canvasMouse);
+    if (canvasHit)
+        return LoadCursor(nullptr, canvasHit == 10 ? IDC_SIZENWSE : canvasHit == 2 ? IDC_SIZEWE : IDC_SIZENS);
     int textHandle = textMoving ? (textResize ? textResize : 16) : textHit(canvasMouse);
     if (textHandle) {
         auto cursor = textHandle == 5 || textHandle == 10  ? IDC_SIZENWSE
@@ -74,6 +77,9 @@ void App::refreshList() {
     layout();
 }
 void App::select(int index) {
+    finishCanvasGrow(true);
+    objectPreview.reset();
+    objectBackdrop.reset();
     finishText();
     if (index < 0 || index >= (int)store.docs.size())
         return;
@@ -150,6 +156,8 @@ void App::edit(Command c) {
     clearPixelSelection();
     commit(*doc(), std::move(c));
     selectedObject = (int)doc()->cursor - 1;
+    if (doc()->commands.back().tool == Tool::CanvasSize)
+        selectedObject = -1;
     persist();
     rebuild();
 }
@@ -168,6 +176,10 @@ void App::undo(bool redo) {
     updateTitle();
 }
 RECT App::imageBounds() {
+    if (canvasGrowing)
+        return {canvasStartBounds.left, canvasStartBounds.top,
+                canvasStartBounds.left + (LONG)std::lround(rw(canvasGrowRect) * zoom),
+                canvasStartBounds.top + (LONG)std::lround(rh(canvasGrowRect) * zoom)};
     if (!doc())
         return {};
     RECT c;
@@ -199,15 +211,17 @@ void App::paintCanvas(HDC dc) {
         g.Clear(Color(theme::Canvas));
         if (rendered && doc()) {
             auto b = imageBounds(), r = viewRect(*doc());
+            auto imageTarget = canvasGrowing ? canvasStartBounds : b;
             Gdiplus::SolidBrush white(Color::White);
             g.FillRectangle(&white, b.left, b.top, rw(b), rh(b));
             g.SetInterpolationMode(zoom >= 1 ? Gdiplus::InterpolationModeNearestNeighbor
                                              : Gdiplus::InterpolationModeHighQualityBicubic);
-            g.DrawImage(pixelMoving && pixelBackdrop ? pixelBackdrop.get()
-                        : textInput && textBackdrop  ? textBackdrop.get()
-                                                     : rendered.get(),
-                        Gdiplus::Rect(b.left, b.top, rw(b), rh(b)), r.left, r.top, rw(r), rh(r),
-                        Gdiplus::UnitPixel);
+            g.DrawImage(dragging && objectBackdrop     ? objectBackdrop.get()
+                        : pixelMoving && pixelBackdrop ? pixelBackdrop.get()
+                        : textInput && textBackdrop    ? textBackdrop.get()
+                                                       : rendered.get(),
+                        Gdiplus::Rect(imageTarget.left, imageTarget.top, rw(imageTarget), rh(imageTarget)),
+                        r.left, r.top, rw(r), rh(r), Gdiplus::UnitPixel);
             if (dragging) {
                 auto state = g.Save();
                 g.SetClip(Gdiplus::Rect(b.left, b.top, rw(b), rh(b)));
@@ -220,7 +234,11 @@ void App::paintCanvas(HDC dc) {
                     p.SetDashStyle(Gdiplus::DashStyleDash);
                     auto q = draft.rect;
                     g.DrawRectangle(&p, q.left, q.top, rw(q), rh(q));
-                } else
+                } else if (draft.tool == Tool::PasteImage && objectPreview)
+                    drawPixelPatch(g, *objectPreview,
+                                   {(float)draft.rect.left, (float)draft.rect.top, (float)rw(draft.rect),
+                                    (float)rh(draft.rect)});
+                else
                     drawCommand(g, draft);
                 g.Restore(state);
             }
@@ -250,6 +268,18 @@ void App::paintCanvas(HDC dc) {
             }
             Gdiplus::Pen imageEdge(Color(theme::Line), 1);
             g.DrawRectangle(&imageEdge, (int)b.left - 1, (int)b.top - 1, rw(b) + 1, rh(b) + 1);
+            int edge = canvasGrowing ? canvasGrowHit : canvasEdgeHover;
+            if (edge) {
+                Gdiplus::Pen accent(Color(theme::Blue), 2);
+                if (edge & 2)
+                    g.DrawLine(&accent, (int)b.right, (int)b.top, (int)b.right, (int)b.bottom);
+                if (edge & 8)
+                    g.DrawLine(&accent, (int)b.left, (int)b.bottom, (int)b.right, (int)b.bottom);
+                float x = edge == 8 ? (b.left + b.right) / 2.f : (float)b.right;
+                float y = edge == 2 ? (b.top + b.bottom) / 2.f : (float)b.bottom;
+                Gdiplus::SolidBrush knob(Color(theme::Blue));
+                g.FillEllipse(&knob, x - 3, y - 3, 6.f, 6.f);
+            }
             paintPixelSelection(g, b, r);
             if (!dragging && tool == Tool::Select && selectedObject >= 0 &&
                 selectedObject < (int)doc()->cursor) {
@@ -485,11 +515,24 @@ void App::canvasDown(POINT p) {
         SetCapture(canvas);
         return;
     }
+    if (int edge = canvasEdgeHit(p)) {
+        clearPixelSelection();
+        canvasBeforeView = canvasGrowRect = viewRect(*doc());
+        canvasStartBounds = imageBounds();
+        canvasGrowHit = edge;
+        canvasGrowing = true;
+        SetCapture(canvas);
+        return;
+    }
     if (tool == Tool::PixelSelect && pixelHit(toImage(p))) {
         pixelDown(toImage(p));
         return;
     }
     if (!inside(imageBounds(), p)) {
+        if (tool == Tool::Select) {
+            selectedObject = -1;
+            InvalidateRect(canvas, nullptr, FALSE);
+        }
         if (tool == Tool::PixelSelect)
             clearPixelSelection();
         return;
@@ -510,7 +553,7 @@ void App::canvasDown(POINT p) {
             RECT hit = c.rect;
             InflateRect(&hit, 8, 8);
             if (!hidden[i] && c.tool != Tool::Crop && c.tool != Tool::Erase && c.tool != Tool::Reset &&
-                c.tool != Tool::PixelSelect && inside(hit, q)) {
+                c.tool != Tool::PixelSelect && c.tool != Tool::CanvasSize && inside(hit, q)) {
                 draft = c;
                 draft.target = i;
                 selectedObject = i;
@@ -518,6 +561,15 @@ void App::canvasDown(POINT p) {
                            (std::abs(q.x - c.rect.right) < 10 && std::abs(q.y - c.rect.bottom) < 10);
                 start = q;
                 dragging = true;
+                if (c.tool == Tool::PasteImage && c.imageData) {
+                    objectPreview = decodeImageBytes(*c.imageData);
+                    auto background = *doc();
+                    Command erase;
+                    erase.tool = Tool::Erase;
+                    erase.target = i;
+                    commit(background, erase);
+                    objectBackdrop = render(*original, background);
+                }
                 SetCapture(canvas);
                 break;
             }
@@ -545,6 +597,15 @@ void App::canvasDown(POINT p) {
 }
 void App::canvasMove(POINT p) {
     canvasMouse = p;
+    if (canvasGrowing) {
+        growCanvas(p);
+        return;
+    }
+    int hover = canvasEdgeHit(p);
+    if (hover != canvasEdgeHover) {
+        canvasEdgeHover = hover;
+        InvalidateRect(canvas, nullptr, FALSE);
+    }
     if (!testMode && GetCapture() == canvas)
         SetCursor(canvasCursor(GetDpiForWindow(canvas)));
     if (textMoving) {
@@ -584,7 +645,12 @@ void App::canvasMove(POINT p) {
             if (draft.tool == Tool::Text)
                 draft.fontSize = std::clamp(c.fontSize * sy, 1.f, 200.f);
         } else {
-            OffsetRect(&draft.rect, q.x - start.x, q.y - start.y);
+            int dx = q.x - start.x, dy = q.y - start.y;
+            if (c.tool == Tool::PasteImage) {
+                dx = std::clamp<LONG>(dx, vr.left - c.rect.left, vr.right - c.rect.right);
+                dy = std::clamp<LONG>(dy, vr.top - c.rect.top, vr.bottom - c.rect.bottom);
+            }
+            OffsetRect(&draft.rect, dx, dy);
             for (auto &pt : draft.points) {
                 pt.x += q.x - start.x;
                 pt.y += q.y - start.y;
@@ -605,6 +671,11 @@ void App::canvasMove(POINT p) {
     InvalidateRect(canvas, nullptr, FALSE);
 }
 void App::canvasUp(POINT p) {
+    if (canvasGrowing) {
+        growCanvas(p);
+        finishCanvasGrow();
+        return;
+    }
     if (textMoving) {
         moveText(p);
         endTextMove();
@@ -625,6 +696,8 @@ void App::canvasUp(POINT p) {
     canvasMove(p);
     dragging = false;
     ReleaseCapture();
+    objectPreview.reset();
+    objectBackdrop.reset();
     if (tool == Tool::Text)
         startText(draft);
     else if (tool == Tool::Select)
@@ -672,7 +745,7 @@ void App::eraseAt(POINT p) {
         if (!skip[i] && c.tool == Tool::PixelSelect)
             break;
         if (c.tool == Tool::Crop || c.tool == Tool::Erase || c.tool == Tool::Reset ||
-            c.tool == Tool::PixelSelect || skip[i])
+            c.tool == Tool::PixelSelect || c.tool == Tool::CanvasSize || skip[i])
             continue;
         RECT hit = c.rect;
         InflateRect(&hit, 10, 10);
@@ -842,8 +915,15 @@ LRESULT CALLBACK App::canvasProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         case WM_LBUTTONDOWN:
             a->canvasDown({GET_X_LPARAM(l), GET_Y_LPARAM(l)});
             return 0;
-        case WM_MOUSEMOVE:
+        case WM_MOUSEMOVE: {
+            TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, h, 0};
+            TrackMouseEvent(&track);
+        }
             a->canvasMove({GET_X_LPARAM(l), GET_Y_LPARAM(l)});
+            return 0;
+        case WM_MOUSELEAVE:
+            a->canvasEdgeHover = 0;
+            InvalidateRect(h, nullptr, FALSE);
             return 0;
         case WM_LBUTTONUP:
             a->canvasUp({GET_X_LPARAM(l), GET_Y_LPARAM(l)});
@@ -872,6 +952,13 @@ LRESULT CALLBACK App::canvasProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             return 0;
         case WM_KEYDOWN:
             if (w == VK_ESCAPE) {
+                if (a->canvasGrowing) {
+                    a->finishCanvasGrow(true);
+                    return 0;
+                }
+                a->objectPreview.reset();
+                a->objectBackdrop.reset();
+                a->selectedObject = -1;
                 if (a->textMoving) {
                     a->endTextMove(true);
                     return 0;
@@ -885,6 +972,13 @@ LRESULT CALLBACK App::canvasProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             return 0;
         case WM_CANCELMODE:
         case WM_CAPTURECHANGED:
+            a->finishCanvasGrow(true);
+            if (a->dragging && a->objectPreview) {
+                a->dragging = false;
+                a->objectPreview.reset();
+                a->objectBackdrop.reset();
+                InvalidateRect(h, nullptr, FALSE);
+            }
             a->endTextMove(true);
             if (a->pixelMoving || a->pixelSelecting)
                 a->clearPixelSelection();

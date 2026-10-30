@@ -65,6 +65,7 @@ enum : UINT {
     ID_PEN_WIDTH,
     ID_PEN_WIDTH_LABEL,
     ID_PEN_WIDTH_TITLE,
+    ID_PASTE_IMAGE,
     WM_FINISH_TEXT = WM_APP + 8,
     WM_TRAY = WM_APP + 1,
     WM_SECOND = WM_APP + 2
@@ -113,6 +114,7 @@ class App {
     std::function<bool(size_t)> historyDeleteConfirm;
     fs::path lastSaveFolder;
     std::function<void(const ClipboardImage &)> clipboardVerifier;
+    std::function<Image()> clipboardReader;
     std::map<std::wstring, Image> thumbs;
     fs::path lastExport;
     Tool tool = Tool::Pen;
@@ -127,6 +129,10 @@ class App {
     RECT pixelRect{}, pixelSource{};
     POINT pixelStart{};
     Image pixelPatch, pixelBackdrop;
+    Image objectPreview, objectBackdrop;
+    bool canvasGrowing = false;
+    int canvasGrowHit = 0, canvasEdgeHover = 0;
+    RECT canvasBeforeView{}, canvasGrowRect{}, canvasStartBounds{};
     float zoom = 1;
     int panX = 0, panY = 0;
     POINT mouse{}, start{}, dragOrigin{}, panOrigin{};
@@ -272,6 +278,11 @@ class App {
     void verifyEditor();
     void verifyHistory();
     void verifyPaint();
+    int canvasEdgeHit(POINT point);
+    void growCanvas(POINT point);
+    void finishCanvasGrow(bool cancel = false);
+    void pasteImage();
+    void verifyCanvas();
     void saveView();
     void duplicateObject();
     void deleteObject();
