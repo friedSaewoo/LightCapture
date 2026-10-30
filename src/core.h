@@ -32,7 +32,7 @@ using Gdiplus::Color;
 using Gdiplus::Graphics;
 using Image = std::unique_ptr<Bitmap>;
 inline const wchar_t *AppName = L"LightCapture";
-inline const wchar_t *Version = L"0.1.17";
+inline const wchar_t *Version = L"0.1.18";
 inline RECT normalized(POINT a, POINT b) {
     return {std::min(a.x, b.x), std::min(a.y, b.y), std::max(a.x, b.x), std::max(a.y, b.y)};
 }
@@ -435,6 +435,24 @@ inline void drawCommand(Graphics &g, const Command &c) {
         g.DrawString(c.text.c_str(), -1, &font, Gdiplus::PointF(x, y), &format, &brush);
     }
 }
+inline RECT pixelDestination(const Command &c) {
+    auto p = c.points[0];
+    auto end = c.points.size() > 1 ? c.points[1] : POINT{p.x + rw(c.rect), p.y + rh(c.rect)};
+    return {p.x, p.y, end.x, end.y};
+}
+inline void drawPixelPatch(Graphics &g, Bitmap &patch, Gdiplus::RectF destination) {
+    auto state = g.Save();
+    bool scaled = destination.Width != patch.GetWidth() || destination.Height != patch.GetHeight();
+    g.SetInterpolationMode(scaled ? Gdiplus::InterpolationModeHighQualityBicubic
+                                  : Gdiplus::InterpolationModeNearestNeighbor);
+    g.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHalf);
+    Gdiplus::ImageAttributes attributes;
+    attributes.SetWrapMode(Gdiplus::WrapModeTileFlipXY);
+    auto result = g.DrawImage(&patch, destination, 0.f, 0.f, (float)patch.GetWidth(),
+                              (float)patch.GetHeight(), Gdiplus::UnitPixel, &attributes);
+    g.Restore(state);
+    require(result == Gdiplus::Ok, "selected pixels could not be drawn");
+}
 inline Image render(Bitmap &original, const Document &d) {
     auto out = clone(original);
     auto skip = erased(d);
@@ -451,10 +469,12 @@ inline Image render(Bitmap &original, const Document &d) {
             g.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
             Gdiplus::SolidBrush white(Color::White);
             require(g.FillRectangle(&white, (int)source.left, (int)source.top, rw(source), rh(source)) ==
-                            Gdiplus::Ok &&
-                        g.DrawImage(patch.get(), (int)c.points[0].x, (int)c.points[0].y,
-                                    (int)patch->GetWidth(), (int)patch->GetHeight()) == Gdiplus::Ok,
-                    "selected pixel move failed");
+                        Gdiplus::Ok,
+                    "selected pixel source could not be cleared");
+            auto destination = pixelDestination(c);
+            drawPixelPatch(g, *patch,
+                           {(float)destination.left, (float)destination.top, (float)rw(destination),
+                            (float)rh(destination)});
         } else if (c.tool == Tool::Mosaic)
             mosaic(*out, c.rect, (int)c.width);
         else {

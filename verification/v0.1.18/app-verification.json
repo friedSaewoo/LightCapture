@@ -1,0 +1,17 @@
+{
+  "default_hotkey_available": false,
+  "temporary_hotkey_registered": true,
+  "conflict_preserves_existing_registration": true,
+  "document_roundtrip": true,
+  "undo_redo": true,
+  "hide_releases_images": true,
+  "automatic_export_disabled": true,
+  "save_picker_every_time_and_cancel": true,
+  "thumbnail_close_hit_and_handler": true,
+  "thumbnail_removal_keeps_active_edits": true,
+  "last_thumbnail_clears_editor": true,
+  "thumbnail_removal_persistent": true,
+  "export_survives_thumbnail_removal": true,
+  "desktop_capture_performed": false,
+  "input_injection_performed": false
+}

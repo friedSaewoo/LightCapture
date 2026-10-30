@@ -115,6 +115,7 @@ class App {
     bool fill = false, dragging = false, resizing = false;
     Command draft;
     bool pixelReady = false, pixelSelecting = false, pixelMoving = false;
+    int pixelResize = 0;
     RECT pixelRect{}, pixelSource{};
     POINT pixelStart{};
     Image pixelPatch, pixelBackdrop;
@@ -165,6 +166,7 @@ class App {
     void setTool(Tool next);
     void setColor(uint32_t next);
     void clearPixelSelection();
+    int pixelHit(POINT imagePoint);
     void pixelDown(POINT imagePoint);
     void pixelMove(POINT imagePoint);
     void pixelUp();

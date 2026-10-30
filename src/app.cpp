@@ -544,7 +544,7 @@ void App::command(UINT id) {
         DestroyWindow(main);
         break;
     case ID_ABOUT:
-        message(main, L"LightCapture 0.1.17\n전역 캡처 · 통합 편집 · 최근 캡처\n\nCtrl + Shift + X "
+        message(main, L"LightCapture 0.1.18\n전역 캡처 · 통합 편집 · 최근 캡처\n\nCtrl + Shift + X "
                       L"(환경설정에서 변경)\n닫기: 트레이 대기 / 파일 메뉴: 프로그램 종료\n\n성능·알캡처 "
                       L"동등성 전체 검증은 아직 완료되지 않았습니다.");
         break;

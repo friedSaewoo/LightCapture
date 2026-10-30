@@ -192,13 +192,15 @@ static Document readDocument(const fs::path &path) {
         f.read((char *)c.points.data(), n * sizeof(POINT));
         require((bool)f, "truncated points");
         if (c.tool == Tool::PixelSelect) {
-            require(c.points.size() == 1 && c.rect.left >= 0 && c.rect.top >= 0 &&
+            require((c.points.size() == 1 || c.points.size() == 2) && c.rect.left >= 0 && c.rect.top >= 0 &&
                         c.rect.right > c.rect.left && c.rect.bottom > c.rect.top &&
-                        c.rect.right <= (LONG)d.width && c.rect.bottom <= (LONG)d.height &&
-                        c.points[0].x >= 0 && c.points[0].y >= 0 &&
-                        c.points[0].x <= (LONG)d.width - rw(c.rect) &&
-                        c.points[0].y <= (LONG)d.height - rh(c.rect),
-                    "invalid pixel selection move");
+                        c.rect.right <= (LONG)d.width && c.rect.bottom <= (LONG)d.height,
+                    "invalid pixel selection source");
+            auto destination = pixelDestination(c);
+            require(destination.left >= 0 && destination.top >= 0 && destination.right > destination.left &&
+                        destination.bottom > destination.top && destination.right <= (LONG)d.width &&
+                        destination.bottom <= (LONG)d.height,
+                    "invalid pixel selection destination");
         }
         d.commands.push_back(std::move(c));
     }

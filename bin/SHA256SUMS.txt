@@ -1,1 +1,1 @@
-d56be953b4f02ab394f6c52218cdafe2d57d60373f226be1cda52d66cd5bf47c  LightCapture.exe
+f0c194e8e6086f31872a76135d7fff277a4f26e6ea603794d5dbd588b656c285  LightCapture.exe

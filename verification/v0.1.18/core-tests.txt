@@ -1,0 +1,50 @@
+PASS reverse drag normalization
+PASS selection clipping
+PASS rectangle renders real pixel
+PASS annotation leaves outside intact
+PASS undo restores original pixel
+PASS redo restores annotation
+PASS object move hides old location
+PASS object move undone in one step
+PASS eraser removes annotation
+PASS undo retains redo history
+PASS new edit truncates redo branch
+PASS crop output dimensions
+PASS cropped annotation alignment
+PASS original reset restores dimensions and pixels
+PASS original reset undo restores edited state
+PASS mosaic flatten block
+PASS mosaic preserves outside
+PASS all editor tools produce image
+PASS format save/decode dimensions
+PASS format save/decode dimensions
+PASS format save/decode dimensions
+PASS format save/decode dimensions
+PASS format save/decode dimensions
+PASS scroll overlap recovers exact shift
+PASS scroll stop distinguishes changed frame
+PASS startup keeps edit payload on disk
+PASS history persisted
+PASS edit commands persisted
+PASS settings persisted
+PASS restart rendered state matches
+PASS corrupt metadata isolated and logged
+PASS delete internal capture preserves export
+PASS orphan original reconstructed after missing metadata
+PASS 101 captures retain exactly 100 history items
+PASS rapid capture IDs are unique
+PASS 100 history items survive restart
+PASS incomplete atomic temporary file does not replace good history
+PASS transparent PNG preserves alpha
+PASS JPEG transparent background becomes white
+PASS reserved Windows filename handled
+PASS invalid filename token handled
+PASS export naming does not overwrite existing file
+PASS boxed text wraps within dragged width
+PASS boxed text background remains transparent
+PASS boxed text cannot paint outside its region
+PASS textPhoto pixels remain visible between text glyphs
+PASS legacy automatic export setting is disabled on load
+PASS settings persistence cannot re-enable automatic export
+PASS 1000 render cycles bounded allocation
+RESULT 49 passed, 0 failed

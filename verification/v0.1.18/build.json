@@ -1,0 +1,20 @@
+{
+  "Version": "0.1.18",
+  "Design": "Fluent Light pixel selection resize handles",
+  "PEMachine": "0x8664 AMD64",
+  "ExecutableSHA256": "f0c194e8e6086f31872a76135d7fff277a4f26e6ea603794d5dbd588b656c285",
+  "ExecutableBytes": 1894912,
+  "CoreChecksPassed": 49,
+  "ClipboardPixelChecksPassed": 11,
+  "PixelSelectionChecksPassed": 74,
+  "SidebarWidthRatioToPrevious": "2/3",
+  "ThumbnailBorderPassed": true,
+  "SingleRoundedHistoryFocusOutline": true,
+  "PixelSelectionResizePassed": true,
+  "CurrentSaveIgnoresChecks": true,
+  "CurrentSaveCancelPreservesDestination": true,
+  "HeaderAndFooterLayoutPassed": true,
+  "ComputerUseUsed": false,
+  "DesktopCapturePerformed": false,
+  "SystemClipboardModified": false
+}

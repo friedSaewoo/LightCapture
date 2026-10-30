@@ -176,6 +176,140 @@ void App::verifyPixelSelection() {
           "pixel movement discarded crop dimensions");
     select(selected);
     check(!pixelReady && !pixelPatch && !pixelBackdrop, "document reload retained temporary selection");
+    auto resizeImage = std::make_unique<Bitmap>(260, 180, PixelFormat32bppARGB);
+    {
+        Graphics g(resizeImage.get());
+        g.Clear(Color(0xff16a34a));
+        Gdiplus::SolidBrush orange(Color(0xffffa000));
+        g.FillRectangle(&orange, 20, 20, 80, 60);
+    }
+    add(std::move(resizeImage));
+    annotation.rect = {36, 32, 76, 66};
+    edit(annotation);
+    count = doc()->cursor;
+    zoom = 1;
+    auto resizeOriginal = clone(*rendered);
+    auto choose = [&]() {
+        clearPixelSelection();
+        down(20, 20);
+        up(100, 80);
+    };
+    struct ResizeCase {
+        POINT from, to;
+        RECT expected;
+        LPCWSTR cursor;
+    };
+    ResizeCase cases[] = {
+        {{20, 50}, {40, 50}, {40, 20, 100, 80}, IDC_SIZEWE},
+        {{100, 50}, {60, 50}, {20, 20, 60, 80}, IDC_SIZEWE},
+        {{60, 20}, {60, 40}, {20, 40, 100, 80}, IDC_SIZENS},
+        {{60, 80}, {60, 50}, {20, 20, 100, 50}, IDC_SIZENS},
+        {{20, 20}, {40, 35}, {40, 35, 100, 80}, IDC_SIZENWSE},
+        {{100, 20}, {60, 35}, {20, 35, 60, 80}, IDC_SIZENESW},
+        {{20, 80}, {40, 50}, {40, 20, 100, 50}, IDC_SIZENESW},
+        {{100, 80}, {60, 50}, {20, 20, 60, 50}, IDC_SIZENWSE},
+    };
+    for (auto &test : cases) {
+        choose();
+        canvasMouse = point(test.from.x, test.from.y);
+        check(canvasCursor(96) == LoadCursor(nullptr, test.cursor), "resize border cursor mismatch");
+        down(test.from.x, test.from.y);
+        auto buffer = pixelPatch.get();
+        move(test.to.x, test.to.y);
+        move(test.to.x, test.to.y);
+        check(pixelMoving && pixelResize && pixelPatch.get() == buffer && doc()->cursor == count,
+              "resize preview reallocated its source or changed history");
+        up(test.to.x, test.to.y);
+        check(EqualRect(&pixelRect, &test.expected) && doc()->cursor == count + 1 &&
+                  doc()->commands.back().points.size() == 2 && !pixelPatch && !pixelBackdrop,
+              "border resize did not commit one bounded transform");
+        auto destination = pixelRect;
+        int centerX = (destination.left + destination.right) / 2;
+        int centerY = (destination.top + destination.bottom) / 2;
+        check(colorAt(*rendered, centerX, centerY).GetB() > 150 &&
+                  colorAt(*rendered, 200, 120).GetValue() == colorAt(*resizeOriginal, 200, 120).GetValue(),
+              "resize lost scaled annotations or changed outside pixels");
+        command(ID_UNDO);
+        check(doc()->cursor == count && !pixelReady &&
+                  colorAt(*rendered, 40, 40).GetValue() == colorAt(*resizeOriginal, 40, 40).GetValue(),
+              "resize undo did not restore the original image");
+    }
+    choose();
+    down(100, 80);
+    up(60, 50);
+    check(colorAt(*rendered, 90, 70).GetValue() == Color::White,
+          "shrinking failed to clear the removed source area");
+    Store resizeStore(store.root);
+    auto resizedDocument = resizeStore.read(*doc());
+    auto resizedFile = loadImage(resizeStore.png(resizedDocument));
+    auto resizedOutput = output(*resizedFile, resizedDocument);
+    check(resizedDocument.commands.back().points.size() == 2 &&
+              colorAt(*resizedOutput, 40, 35).GetValue() == colorAt(*rendered, 40, 35).GetValue() &&
+              colorAt(*resizedOutput, 90, 70).GetValue() == Color::White,
+          "resized pixels did not survive metadata reload");
+    clipboardVerifier = [&](const ClipboardImage &formats) {
+        auto head = (const BITMAPINFOHEADER *)formats.dib.data();
+        check(head->biWidth == 40 && head->biHeight == 30, "resized-area copy dimensions mismatch");
+    };
+    command(ID_COPY);
+    clipboardVerifier = {};
+    saveImage(*resizedOutput, store.root / L"pixel-resize-edited.png");
+    check(loadImage(store.root / L"pixel-resize-edited.png")->GetWidth() == 260,
+          "resizing a region changed full-image export dimensions");
+    zoom = 2;
+    pixelPreview(main, store.root / L"pixel-resize-preview.png");
+    GetWindowRect(main, &normal);
+    SetWindowPos(main, nullptr, 0, 0, 720, 480, SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOZORDER);
+    pixelPreview(main, store.root / L"pixel-resize-720-preview.png");
+    SetWindowPos(main, nullptr, 0, 0, rw(normal), rh(normal), SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOZORDER);
+    zoom = 1;
+    down(40, 35);
+    up(120, 75);
+    check(pixelRect.left == 100 && pixelRect.top == 60 && rw(pixelRect) == 40 && rh(pixelRect) == 30 &&
+              doc()->commands.back().points.size() == 1,
+          "resized selection could not subsequently move from its interior");
+    command(ID_UNDO);
+    command(ID_UNDO);
+    choose();
+    down(100, 80);
+    move(140, 110);
+    canvasProc(canvas, WM_KEYDOWN, VK_ESCAPE, 0);
+    check(doc()->cursor == count && !pixelMoving && !pixelResize && !pixelPatch && !pixelBackdrop &&
+              colorAt(*rendered, 40, 40).GetValue() == colorAt(*resizeOriginal, 40, 40).GetValue(),
+          "Esc during resize changed pixels or retained buffers");
+    choose();
+    down(100, 80);
+    up(140, 110);
+    check(rw(pixelRect) == 120 && rh(pixelRect) == 90 && doc()->cursor == count + 1,
+          "selection could not be enlarged");
+    command(ID_UNDO);
+    choose();
+    down(100, 80);
+    up(0, 0);
+    check(rw(pixelRect) == 1 && rh(pixelRect) == 1, "crossed resize allowed inverted or empty bounds");
+    command(ID_UNDO);
+    choose();
+    down(20, 20);
+    up(-100, -100);
+    check(pixelRect.left == 0 && pixelRect.top == 0, "resize escaped image boundary");
+    command(ID_UNDO);
+    choose();
+    down(100, 80);
+    up(100, 80);
+    check(doc()->cursor == count && pixelReady, "zero-distance border click created history");
+    zoom = .5f;
+    canvasMouse = point(100, 50);
+    check(canvasCursor(96) == LoadCursor(nullptr, IDC_SIZEWE) && pixelHit({106, 50}) == 2,
+          "zoomed border hit target did not retain screen-space tolerance");
+    zoom = 1;
+    edit(cropView);
+    choose();
+    down(20, 20);
+    up(-100, -100);
+    check(pixelRect.left == 20 && pixelRect.top == 10, "resize escaped the current cropped view");
+    select(selected);
+    check(!pixelReady && !pixelResize && !pixelPatch && !pixelBackdrop,
+          "reload retained resize state or buffers");
     while (!store.docs.empty())
         removeHistory(0);
     std::ofstream report(store.root / L"pixel-selection-verification.json");
@@ -184,6 +318,10 @@ void App::verifyPixelSelection() {
               "  \"overlap_safe\": true,\n  \"undo_and_metadata_roundtrip\": true,\n"
               "  \"selected_region_copy\": true,\n  \"crop_boundary_clamp\": true,\n"
               "  \"preview_buffers_reused_and_released\": true,\n"
+              "  \"eight_border_and_corner_resize_targets\": true,\n"
+              "  \"resize_cursor_and_zoom_hit_targets\": true,\n"
+              "  \"resize_pixels_undo_reload_copy_export\": true,\n"
+              "  \"resize_minimum_bounds_crop_and_cancel\": true,\n"
               "  \"computer_use\": false,\n  \"system_clipboard_modified\": false\n}\n";
 }
 } // namespace lc

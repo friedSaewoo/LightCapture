@@ -4,10 +4,16 @@ namespace lc {
 HCURSOR App::canvasCursor(UINT dpi) {
     if (panning)
         return LoadCursor(nullptr, IDC_SIZEALL);
-    if (tool == Tool::PixelSelect)
-        return LoadCursor(nullptr, pixelMoving || (pixelReady && inside(pixelRect, toImage(canvasMouse)))
-                                       ? IDC_SIZEALL
-                                       : IDC_CROSS);
+    if (tool == Tool::PixelSelect) {
+        int hit = pixelMoving ? (pixelResize ? pixelResize : 16) : pixelHit(toImage(canvasMouse));
+        auto cursor = hit == 5 || hit == 10  ? IDC_SIZENWSE
+                      : hit == 6 || hit == 9 ? IDC_SIZENESW
+                      : hit & 3              ? IDC_SIZEWE
+                      : hit & 12             ? IDC_SIZENS
+                      : hit == 16            ? IDC_SIZEALL
+                                             : IDC_CROSS;
+        return LoadCursor(nullptr, cursor);
+    }
     if (tool == Tool::Text)
         return LoadCursor(nullptr, IDC_IBEAM);
     if (tool == Tool::Select) {
@@ -425,6 +431,10 @@ void App::canvasDown(POINT p) {
         dragOrigin = p;
         panOrigin = {panX, panY};
         SetCapture(canvas);
+        return;
+    }
+    if (tool == Tool::PixelSelect && pixelHit(toImage(p))) {
+        pixelDown(toImage(p));
         return;
     }
     if (!inside(imageBounds(), p)) {
