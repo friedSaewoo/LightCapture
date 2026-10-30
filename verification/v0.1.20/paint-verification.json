@@ -1,0 +1,12 @@
+{
+  "checks_passed": 23,
+  "opaque_white_canvas_and_activation": true,
+  "previous_images_and_pending_text_preserved": true,
+  "pen_drawing_undo_and_persistence": true,
+  "current_canvas_save_and_copy": true,
+  "vertical_pen_width_drag_wheel_and_bounds": true,
+  "pen_only_rail_and_small_window_layout": true,
+  "fit_action_removed": true,
+  "computer_use": false,
+  "system_clipboard_modified": false
+}

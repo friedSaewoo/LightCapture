@@ -32,7 +32,7 @@ using Gdiplus::Color;
 using Gdiplus::Graphics;
 using Image = std::unique_ptr<Bitmap>;
 inline const wchar_t *AppName = L"LightCapture";
-inline const wchar_t *Version = L"0.1.19";
+inline const wchar_t *Version = L"0.1.20";
 inline RECT normalized(POINT a, POINT b) {
     return {std::min(a.x, b.x), std::min(a.y, b.y), std::max(a.x, b.x), std::max(a.y, b.y)};
 }
@@ -614,7 +614,7 @@ struct Store {
     void saveSettings();
     void save(Document &d);
     void load();
-    Document &add(Bitmap &b);
+    Document &add(Bitmap &b, const std::wstring &name = L"");
     void remove(size_t index);
     Document read(const Document &d);
     void ensure(Document &d);

@@ -61,6 +61,10 @@ enum : UINT {
     ID_CHECK_COUNT,
     ID_HISTORY_DELETE,
     ID_SAVE_CURRENT,
+    ID_NEW_CANVAS,
+    ID_PEN_WIDTH,
+    ID_PEN_WIDTH_LABEL,
+    ID_PEN_WIDTH_TITLE,
     WM_FINISH_TEXT = WM_APP + 8,
     WM_TRAY = WM_APP + 1,
     WM_SECOND = WM_APP + 2
@@ -146,7 +150,7 @@ class App {
     Image scrollPrevious, scrollResult;
     std::wstring warning;
     std::vector<std::pair<UINT, HWND>> topControls;
-    HWND widthControl = nullptr, toolControl = nullptr;
+    HWND widthControl = nullptr, widthLabel = nullptr, widthTitle = nullptr, toolControl = nullptr;
     int toolbarBottom = 0;
     std::vector<RECT> toolbarDividers;
     explicit App(fs::path root) : store(std::move(root)) {}
@@ -167,6 +171,11 @@ class App {
     void paintActionButton(DRAWITEMSTRUCT *item);
     void paintChrome(HDC dc);
     void refreshToolbar();
+    bool penWidthVisible() const {
+        return tool == Tool::Pen && selected >= 0;
+    }
+    void setPenWidth(int value);
+    static LRESULT CALLBACK penWidthProc(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
     void setTool(Tool next);
     void setColor(uint32_t next);
     void clearPixelSelection();
@@ -212,7 +221,8 @@ class App {
     void select(int index);
     void rebuild();
     void persist();
-    void add(Image image);
+    void add(Image image, const std::wstring &name = L"");
+    void newCanvas();
     void edit(Command c);
     void command(UINT id);
     void layout();
@@ -261,6 +271,7 @@ class App {
     void verify();
     void verifyEditor();
     void verifyHistory();
+    void verifyPaint();
     void saveView();
     void duplicateObject();
     void deleteObject();

@@ -337,27 +337,18 @@ void App::layout() {
     int listHeight = std::max(1, rh(r) - top - scale(96 + 32));
     MoveWindow(list, sidebar + scale(8), top + scale(96), sidebarWidth - scale(16), listHeight, TRUE);
     SendMessageW(list, LB_SETITEMHEIGHT, 0, std::min(scale(174), std::max(scale(116), listHeight)));
-    MoveWindow(canvas, 0, top, std::max(1, sidebar), std::max(1, rh(r) - top - scale(26)), TRUE);
+    bool pen = penWidthVisible();
+    int railWidth = pen ? scale(64) : 0;
+    int canvasHeight = std::max(1, rh(r) - top - scale(26));
+    MoveWindow(widthTitle, scale(4), top + scale(12), scale(56), scale(24), TRUE);
+    MoveWindow(widthLabel, scale(4), top + scale(38), scale(56), scale(24), TRUE);
+    MoveWindow(widthControl, scale(12), top + scale(66), scale(40),
+               std::max(scale(64), std::min(scale(240), canvasHeight - scale(78))), TRUE);
+    for (auto h : {widthControl, widthLabel, widthTitle})
+        ShowWindow(h, pen ? SW_SHOWNA : SW_HIDE);
+    MoveWindow(canvas, railWidth, top, std::max(1, sidebar - railWidth), canvasHeight, TRUE);
 }
 void App::command(UINT id) {
-    if (id == 181) {
-        HMENU menu = CreatePopupMenu();
-        int widths[] = {1, 2, 3, 5, 8, 12, 20};
-        for (int i = 0; i < 7; ++i) {
-            auto label = std::to_wstring(widths[i]) + L" px";
-            AppendMenuW(menu, MF_STRING | ((int)stroke == widths[i] ? MF_CHECKED : 0), 400 + i,
-                        label.c_str());
-        }
-        RECT anchor{};
-        GetWindowRect(widthControl, &anchor);
-        UINT chosen = TrackPopupMenu(menu, TPM_RETURNCMD, anchor.left, anchor.bottom, 0, main, nullptr);
-        DestroyMenu(menu);
-        if (chosen >= 400 && chosen < 407) {
-            stroke = widths[chosen - 400];
-            SetWindowTextW(widthControl, (std::to_wstring((int)stroke) + L" px").c_str());
-        }
-        return;
-    }
     if (id >= ID_PALETTE && id < ID_PALETTE + PaletteCount) {
         setColor(Palette[id - ID_PALETTE].value);
         return;
@@ -376,6 +367,9 @@ void App::command(UINT id) {
         return;
     }
     switch (id) {
+    case ID_NEW_CANVAS:
+        newCanvas();
+        break;
     case ID_CAPTURE:
         begin(Mode::Rectangle);
         break;
@@ -519,14 +513,6 @@ void App::command(UINT id) {
     case ID_ACTUAL:
         setZoom(1);
         break;
-    case ID_FIT:
-        if (doc()) {
-            RECT r;
-            GetClientRect(canvas, &r);
-            auto v = viewRect(*doc());
-            setZoom(std::min((rw(r) - 48.f) / rw(v), (rh(r) - 48.f) / rh(v)));
-        }
-        break;
     case ID_FOLDER:
         ShellExecuteW(main, L"open", store.root.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         break;
@@ -544,7 +530,7 @@ void App::command(UINT id) {
         DestroyWindow(main);
         break;
     case ID_ABOUT:
-        message(main, L"LightCapture 0.1.19\n전역 캡처 · 통합 편집 · 최근 캡처\n\nCtrl + Shift + X "
+        message(main, L"LightCapture 0.1.20\n전역 캡처 · 통합 편집 · 최근 캡처\n\nCtrl + Shift + X "
                       L"(환경설정에서 변경)\n닫기: 트레이 대기 / 파일 메뉴: 프로그램 종료\n\n성능·알캡처 "
                       L"동등성 전체 검증은 아직 완료되지 않았습니다.");
         break;
@@ -568,6 +554,7 @@ LRESULT CALLBACK App::mainProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         case WM_CREATE: {
             HMENU menu = CreateMenu(), file = CreatePopupMenu(), capture = CreatePopupMenu(),
                   edit = CreatePopupMenu(), view = CreatePopupMenu();
+            item(file, ID_NEW_CANVAS, L"새 그림판\tCtrl+N");
             item(file, ID_OPEN, L"이미지 열기...\tCtrl+O");
             item(file, ID_SAVE_CURRENT, L"현재 캡처 저장...\tCtrl+S");
             item(file, ID_SAVE, L"체크한 캡처 저장...");
@@ -590,7 +577,6 @@ LRESULT CALLBACK App::mainProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             item(edit, ID_DELETE, L"체크한 캡처 삭제...\tDelete");
             item(edit, ID_DUPLICATE, L"선택 개체 복제\tCtrl+D");
             item(edit, ID_FONT, L"글꼴...");
-            item(view, ID_FIT, L"화면에 맞춤");
             item(view, ID_ACTUAL, L"실제 크기");
             item(view, ID_ZOOMIN, L"확대");
             item(view, ID_ZOOMOUT, L"축소");
@@ -636,10 +622,12 @@ LRESULT CALLBACK App::mainProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         case WM_CTLCOLORBTN:
         case WM_CTLCOLORSTATIC:
             if ((HWND)l == GetDlgItem(h, ID_FILL) || (HWND)l == a->historyCheckAll ||
-                (HWND)l == a->historyCheckCount) {
+                (HWND)l == a->historyCheckCount || (HWND)l == a->widthTitle || (HWND)l == a->widthLabel ||
+                (HWND)l == a->widthControl) {
                 SetBkMode((HDC)w, OPAQUE);
-                COLORREF background =
-                    (HWND)l == GetDlgItem(h, ID_FILL) ? RGB(255, 255, 255) : RGB(248, 250, 253);
+                COLORREF background = (HWND)l == a->historyCheckAll || (HWND)l == a->historyCheckCount
+                                          ? RGB(248, 250, 253)
+                                          : RGB(255, 255, 255);
                 SetBkColor((HDC)w, background);
                 SetTextColor((HDC)w, GetSysColor(COLOR_WINDOWTEXT));
                 SetDCBrushColor((HDC)w, background);
@@ -663,16 +651,17 @@ LRESULT CALLBACK App::mainProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 return TRUE;
             }
             break;
+        case WM_VSCROLL:
+            if ((HWND)l == a->widthControl) {
+                a->setPenWidth(81 - (int)SendMessageW(a->widthControl, TBM_GETPOS, 0, 0));
+                return 0;
+            }
+            break;
         case WM_COMMAND:
             if (LOWORD(w) == ID_LIST && HIWORD(w) == LBN_SELCHANGE) {
                 int i = SendMessageW(a->list, LB_GETCURSEL, 0, 0);
                 a->lastExport.clear();
                 a->select(i);
-            } else if (LOWORD(w) == 181 && HIWORD(w) == CBN_SELCHANGE) {
-                int values[] = {1, 2, 3, 5, 8, 12, 20};
-                int i = SendMessageW(a->widthControl, CB_GETCURSEL, 0, 0);
-                if (i >= 0 && i < 7)
-                    a->stroke = values[i];
             } else
                 a->command(LOWORD(w));
             return 0;
@@ -1129,6 +1118,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
             if (smoke)
                 SetTimer(instance.main, 99, 15000, nullptr);
             std::vector<ACCEL> keys = {{FVIRTKEY | FCONTROL, 'C', ID_COPY},
+                                       {FVIRTKEY | FCONTROL, 'N', ID_NEW_CANVAS},
                                        {FVIRTKEY | FCONTROL, 'Z', ID_UNDO},
                                        {FVIRTKEY | FCONTROL, 'S', ID_SAVE_CURRENT},
                                        {FVIRTKEY | FCONTROL | FSHIFT, 'S', ID_SAVEAS},

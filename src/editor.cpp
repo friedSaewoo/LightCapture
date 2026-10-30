@@ -71,6 +71,7 @@ void App::refreshList() {
         SendMessageW(list, LB_SETCURSEL, selected, 0);
     SendMessageW(list, LB_SETTOPINDEX, std::max(0, top), 0);
     updateTitle();
+    layout();
 }
 void App::select(int index) {
     finishText();
@@ -114,10 +115,10 @@ void App::persist() {
         InvalidateRect(list, nullptr, FALSE);
     }
 }
-void App::add(Image image) {
+void App::add(Image image, const std::wstring &name) {
     finishText();
     require(image != nullptr, "empty image");
-    store.add(*image);
+    store.add(*image, name);
     selected = 0;
     original = std::move(image);
     rendered = clone(*original);
@@ -126,6 +127,22 @@ void App::add(Image image) {
         show();
     select(0);
     statusText(L"캡처 완료 · 편집 후 저장 버튼으로 저장 위치를 선택하세요.");
+}
+void App::newCanvas() {
+    if (busy)
+        return;
+    auto image = std::make_unique<Bitmap>(1280, 720, PixelFormat32bppARGB);
+    require(image->GetLastStatus() == Gdiplus::Ok, "blank canvas allocation failed");
+    {
+        Graphics g(image.get());
+        require(g.Clear(Color::White) == Gdiplus::Ok, "blank canvas initialization failed");
+    }
+    setTool(Tool::Pen);
+    add(std::move(image), L"그림판");
+    SendMessageW(list, LB_SETTOPINDEX, 0, 0);
+    if (!testMode)
+        SetFocus(canvas);
+    statusText(L"새 그림판 1280 × 720 · 펜으로 그리세요 · 왼쪽 막대: 굵기 · Ctrl+S: 저장");
 }
 void App::edit(Command c) {
     if (!doc())
@@ -250,11 +267,11 @@ void App::paintCanvas(HDC dc) {
             SetTextColor(mem, RGB(56, 65, 80));
             SelectObject(mem, uiFont);
             RECT text{32, 65, rw(c) - 32, 180};
-            DrawTextW(
-                mem,
-                L"Ctrl + Shift + X 로 영역을 캡처하세요\n\n오른쪽 목록에서 이전 캡처를 선택하거나 파일을 "
-                L"열 수 있습니다.",
-                -1, &text, DT_CENTER | DT_WORDBREAK);
+            DrawTextW(mem,
+                      L"Ctrl + Shift + X 로 캡처하거나 상단 그림판 버튼으로 그리기를 시작하세요.\n\n오른쪽 "
+                      L"목록에서 이전 캡처를 선택하거나 파일을 "
+                      L"열 수 있습니다.",
+                      -1, &text, DT_CENTER | DT_WORDBREAK);
         }
     }
     BitBlt(dc, 0, 0, rw(c), rh(c), mem, 0, 0, SRCCOPY);

@@ -271,7 +271,8 @@ void App::verifyHistory() {
         auto dpi = GetDpiForWindow(main);
         int oldWidth = std::clamp(MulDiv(rw(client), 96, dpi) * 27 / 100, 296, 380);
         int expectedWidth = MulDiv(oldWidth * 2 / 3, dpi, 96);
-        require(std::abs(rw(client) - rw(canvasRect) - expectedWidth) <= 1 &&
+        int railWidth = penWidthVisible() ? MulDiv(64, dpi, 96) : 0;
+        require(std::abs(rw(client) - rw(canvasRect) - railWidth - expectedWidth) <= 1 &&
                     allRect.right <= countRect.left && countRect.right <= saveRect.right + 4,
                 "compact history width or header labels overlap");
         RECT row{};

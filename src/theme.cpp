@@ -57,6 +57,10 @@ void App::paintChrome(HDC dc) {
     g.Clear(Color(theme::Window));
     Gdiplus::Pen line(Color(theme::Line), 1);
     g.DrawLine(&line, 0, toolbarBottom - 1, rw(r), toolbarBottom - 1);
+    if (penWidthVisible()) {
+        int edge = MulDiv(64, GetDpiForWindow(main), 96);
+        g.DrawLine(&line, edge - 1, toolbarBottom, edge - 1, rh(r));
+    }
     if (!list)
         return;
     RECT sidebar{};

@@ -363,3 +363,164 @@ void App::verifyEditor() {
               "  \"desktop_capture\": false,\n  \"external_input\": false\n}\n";
 }
 } // namespace lc
+namespace lc {
+void App::verifyPaint() {
+    int checks = 0;
+    auto check = [&](bool ok, const char *message) {
+        require(ok, message);
+        ++checks;
+    };
+    auto pixel = [&](Bitmap &image, int x, int y) {
+        Color color;
+        require(image.GetPixel(x, y, &color) == Gdiplus::Ok, "paint test pixel unavailable");
+        return color.GetValue();
+    };
+    auto blank = [&](Bitmap &image) {
+        Gdiplus::BitmapData data{};
+        Gdiplus::Rect r(0, 0, image.GetWidth(), image.GetHeight());
+        require(image.LockBits(&r, Gdiplus::ImageLockModeRead, PixelFormat32bppARGB, &data) == Gdiplus::Ok,
+                "blank canvas pixels unavailable");
+        bool white = true;
+        for (int y = 0; y < r.Height; ++y) {
+            auto row = (uint32_t *)((BYTE *)data.Scan0 + (ptrdiff_t)y * data.Stride);
+            for (int x = 0; x < r.Width; ++x)
+                white &= row[x] == 0xffffffff;
+        }
+        image.UnlockBits(&data);
+        return white;
+    };
+    auto oldStroke = stroke;
+    check(!GetDlgItem(main, ID_FIT) && !GetDlgItem(main, 181) &&
+              GetMenuState(GetMenu(main), ID_FIT, MF_BYCOMMAND) == (UINT)-1,
+          "fit action or old width dropdown remains");
+    auto button = GetDlgItem(main, ID_NEW_CANVAS);
+    check(button && GetMenuState(GetMenu(main), ID_NEW_CANVAS, MF_BYCOMMAND) != (UINT)-1,
+          "new paint button or menu missing");
+    SendMessageW(main, WM_COMMAND, ID_NEW_CANVAS, (LPARAM)button);
+    check(store.docs.size() == 1 && selected == 0 && tool == Tool::Pen && doc()->name.find(L"그림판 ") == 0 &&
+              doc()->width == 1280 && doc()->height == 720 && doc()->cursor == 0 &&
+              SendMessageW(list, LB_GETCURSEL, 0, 0) == 0 && checkedHistory.empty(),
+          "paint button did not add and activate a fresh document");
+    check(blank(*original) && blank(*rendered), "paint canvas is not opaque white");
+    check(penWidthVisible() && (GetWindowLongPtrW(widthControl, GWL_STYLE) & WS_VISIBLE) &&
+              (GetWindowLongPtrW(widthControl, GWL_STYLE) & TBS_VERT),
+          "pen did not expose its vertical width control");
+    SendMessageW(widthControl, TBM_SETPOS, TRUE, 81 - 17);
+    SendMessageW(main, WM_VSCROLL, TB_THUMBTRACK, (LPARAM)widthControl);
+    wchar_t label[32]{};
+    GetWindowTextW(widthLabel, label, 32);
+    check(stroke == 17 && wcscmp(label, L"17 px") == 0,
+          "vertical width adjustment did not update stroke and displayed value");
+    SendMessageW(widthControl, WM_MOUSEWHEEL, MAKEWPARAM(0, WHEEL_DELTA), 0);
+    check(stroke == 18 && SendMessageW(widthControl, TBM_GETPOS, 0, 0) == 63,
+          "width wheel up did not make the pen thicker");
+    SendMessageW(widthControl, WM_MOUSEWHEEL, MAKEWPARAM(0, -WHEEL_DELTA), 0);
+    check(stroke == 17, "width wheel down did not make the pen thinner");
+    setPenWidth(1000);
+    check(stroke == 80, "pen width exceeded upper bound");
+    setPenWidth(-10);
+    check(stroke == 1, "pen width fell below lower bound");
+    setPenWidth(17);
+    setColor(0xff111827);
+    setZoom(1);
+    auto b = imageBounds();
+    canvasDown({b.left + 50, b.top + 50});
+    canvasMove({b.left + 100, b.top + 50});
+    canvasUp({b.left + 150, b.top + 50});
+    check(doc()->cursor == 1 && doc()->commands.back().tool == Tool::Pen &&
+              doc()->commands.back().width == 17 && pixel(*rendered, 100, 50) == 0xff111827 &&
+              pixel(*rendered, 100, 56) != 0xffffffff && pixel(*rendered, 100, 65) == 0xffffffff,
+          "blank canvas pen did not use the selected stroke width");
+    command(ID_UNDO);
+    check(doc()->cursor == 0 && blank(*rendered), "paint undo did not restore blank canvas");
+    undo(true);
+    auto first = doc()->id;
+    checkHistory(0, false);
+    setTool(Tool::Text);
+    check(!(GetWindowLongPtrW(widthControl, GWL_STYLE) & WS_VISIBLE),
+          "pen width control remained visible for text tool");
+    Command text;
+    text.tool = Tool::Text;
+    text.rect = {200, 100, 500, 200};
+    startText(text);
+    SetWindowTextW(textInput, L"그림판 입력 보존");
+    command(ID_NEW_CANVAS);
+    check(store.docs.size() == 2 && doc()->id != first && selected == 0 && tool == Tool::Pen && !textInput &&
+              blank(*rendered) && checkedHistory.size() == 1 && checkedHistory.count(first),
+          "another blank canvas lost the previous image or checked state");
+    auto second = doc()->id;
+    auto previous = store.read(store.docs[1]);
+    check(previous.cursor == 2 && previous.commands.back().text == L"그림판 입력 보존",
+          "new canvas did not commit pending text on the previous image");
+    select(1);
+    check(doc()->id == first && pixel(*rendered, 100, 50) == 0xff111827,
+          "returning to an earlier painting lost its edited pixels");
+    select(0);
+    auto target = store.root / L"blank-paint.png";
+    savePathPicker = [&](const std::wstring &) { return target.wstring(); };
+    command(ID_SAVE_CURRENT);
+    savePathPicker = {};
+    auto exported = loadImage(target);
+    check(exported->GetWidth() == 1280 && exported->GetHeight() == 720 && blank(*exported),
+          "current canvas save exported a checked previous image instead");
+    int copies = 0;
+    clipboardVerifier = [&](const ClipboardImage &formats) {
+        auto header = (const BITMAPINFOHEADER *)formats.dib.data();
+        ++copies;
+        check(header->biWidth == 1280 && header->biHeight == 720, "paint copy size mismatch");
+    };
+    command(ID_COPY);
+    clipboardVerifier = {};
+    check(copies == 1, "paint copy did not prepare clipboard formats");
+    Store readback(store.root);
+    auto restored = readback.read(readback.docs.front());
+    auto restoredImage = loadImage(readback.png(restored));
+    check(restored.id == second && restored.name.find(L"그림판 ") == 0 && blank(*restoredImage),
+          "blank canvas did not persist in history");
+    auto same = doc()->id;
+    busy = true;
+    newCanvas();
+    busy = false;
+    check(store.docs.size() == 2 && doc()->id == same, "blank canvas interrupted capture mode");
+    select(1);
+    statusText(L"그림판 · 왼쪽 막대와 휠로 펜 굵기 조절 · Ctrl+S로 현재 그림 저장");
+    preview(main, store.root / L"paint-canvas-preview.png");
+    RECT normal{};
+    GetWindowRect(main, &normal);
+    SetWindowPos(main, nullptr, 0, 0, 720, 480, SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOZORDER);
+    RECT slider{}, canvasRect{}, client{};
+    GetWindowRect(widthControl, &slider);
+    GetWindowRect(canvas, &canvasRect);
+    GetClientRect(main, &client);
+    MapWindowPoints(nullptr, main, (POINT *)&slider, 2);
+    MapWindowPoints(nullptr, main, (POINT *)&canvasRect, 2);
+    check(slider.left >= 0 && slider.right <= canvasRect.left && slider.bottom <= client.bottom &&
+              slider.top >= toolbarBottom,
+          "vertical pen width control overlaps the canvas or clips in a small window");
+    for (auto [id, h] : topControls) {
+        RECT rect{};
+        GetWindowRect(h, &rect);
+        MapWindowPoints(nullptr, main, (POINT *)&rect, 2);
+        require(rect.left >= 0 && rect.right <= client.right && rect.bottom <= toolbarBottom,
+                "new toolbar button clips at minimum width");
+    }
+    preview(main, store.root / L"paint-canvas-720-preview.png");
+    SetWindowPos(main, nullptr, 0, 0, rw(normal), rh(normal), SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOZORDER);
+    setPenWidth((int)oldStroke);
+    while (!store.docs.empty())
+        removeHistory(0);
+    check(!penWidthVisible() && !(GetWindowLongPtrW(widthControl, GWL_STYLE) & WS_VISIBLE) &&
+              fs::exists(target),
+          "empty history retained the width rail or deleted the exported painting");
+    std::ofstream report(store.root / L"paint-verification.json");
+    report << "{\n  \"checks_passed\": " << checks
+           << ",\n  \"opaque_white_canvas_and_activation\": true,\n"
+              "  \"previous_images_and_pending_text_preserved\": true,\n"
+              "  \"pen_drawing_undo_and_persistence\": true,\n"
+              "  \"current_canvas_save_and_copy\": true,\n"
+              "  \"vertical_pen_width_drag_wheel_and_bounds\": true,\n"
+              "  \"pen_only_rail_and_small_window_layout\": true,\n"
+              "  \"fit_action_removed\": true,\n"
+              "  \"computer_use\": false,\n  \"system_clipboard_modified\": false\n}\n";
+}
+} // namespace lc

@@ -144,6 +144,7 @@ void App::verify() {
     verifyEditor();
     verifyHistory();
     verifyPixelSelection();
+    verifyPaint();
     std::ofstream f(store.root / L"app-verification.json");
     f << "{\n  \"default_hotkey_available\": " << (defaultAvailable ? "true" : "false")
       << ",\n  \"temporary_hotkey_registered\": " << (alternate ? "true" : "false")

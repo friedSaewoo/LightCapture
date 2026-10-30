@@ -260,7 +260,7 @@ void Store::releaseEdits() {
         d.loaded = false;
     }
 }
-Document &Store::add(Bitmap &b) {
+Document &Store::add(Bitmap &b, const std::wstring &name) {
     SYSTEMTIME t;
     GetLocalTime(&t);
     wchar_t id[100];
@@ -272,7 +272,7 @@ Document &Store::add(Bitmap &b) {
     StringFromGUID2(guid, suffix, 40);
     Document d;
     d.id = std::wstring(id) + suffix;
-    d.name = L"캡처 " + d.id;
+    d.name = (name.empty() ? L"캡처 " : name + L" ") + d.id;
     d.width = b.GetWidth();
     d.height = b.GetHeight();
     saveImage(b, png(d));

@@ -1,0 +1,23 @@
+{
+  "Version": "0.1.20",
+  "Design": "Fluent Light white painting canvas and vertical pen width",
+  "PEMachine": "0x8664 AMD64",
+  "ExecutableSHA256": "68cfa835b5ab318c0245fbb2df07c67718560556be6281d6d2d4e085dff868ec",
+  "ExecutableBytes": 1924096,
+  "CoreChecksPassed": 49,
+  "ClipboardPixelChecksPassed": 11,
+  "PixelSelectionChecksPassed": 74,
+  "SidebarWidthRatioToPrevious": "2/3",
+  "ThumbnailBorderPassed": true,
+  "SingleRoundedHistoryFocusOutline": true,
+  "PaintAndPenWidthChecksPassed": 23,
+  "TextBoxMoveAndResizePassed": true,
+  "TextRepaintPassed": true,
+  "PixelSelectionResizePassed": true,
+  "CurrentSaveIgnoresChecks": true,
+  "CurrentSaveCancelPreservesDestination": true,
+  "HeaderAndFooterLayoutPassed": true,
+  "ComputerUseUsed": false,
+  "DesktopCapturePerformed": false,
+  "SystemClipboardModified": false
+}

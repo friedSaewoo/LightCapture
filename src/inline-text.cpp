@@ -302,6 +302,10 @@ LRESULT CALLBACK App::textProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR id, 
             a->command((GetKeyState(VK_SHIFT) & 0x8000) ? ID_SAVEAS : ID_SAVE_CURRENT);
             return 0;
         }
+        if ((GetKeyState(VK_CONTROL) & 0x8000) && w == 'N') {
+            a->command(ID_NEW_CANVAS);
+            return 0;
+        }
     } else if (m == WM_NCDESTROY)
         RemoveWindowSubclass(h, textProc, id);
     return DefSubclassProc(h, m, w, l);

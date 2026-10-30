@@ -22,6 +22,7 @@ void App::createToolbar() {
         return h;
     };
     button(ID_CAPTURE, L"새 캡처", 108);
+    button(ID_NEW_CANVAS, L"그림판", 80);
     button(ID_WINDOW, L"창", 56);
     button(ID_FULL, L"전체 화면", 88);
     button(ID_SCROLL, L"스크롤", 68);
@@ -31,14 +32,19 @@ void App::createToolbar() {
     topControls.push_back({ID_COLOR, current});
     for (int i = 0; i < PaletteCount; ++i)
         button(ID_PALETTE + i, Palette[i].name, 22, true);
-    widthControl = button(181, L"선 굵기", 58);
-    SetWindowTextW(widthControl, (std::to_wstring((int)stroke) + L" px").c_str());
-    tip(widthControl, L"선 굵기");
+    widthTitle = control(main, L"STATIC", L"굵기", SS_CENTER, 0, 0, 56, 24, ID_PEN_WIDTH_TITLE);
+    widthLabel = control(main, L"STATIC", L"", SS_CENTER, 0, 0, 56, 24, ID_PEN_WIDTH_LABEL);
+    widthControl = control(main, TRACKBAR_CLASSW, L"펜 굵기", WS_TABSTOP | TBS_VERT | TBS_NOTICKS, 0, 0, 40,
+                           200, ID_PEN_WIDTH);
+    SendMessageW(widthControl, TBM_SETRANGE, FALSE, MAKELPARAM(1, 80));
+    SendMessageW(widthControl, TBM_SETPAGESIZE, 0, 5);
+    SetWindowSubclass(widthControl, penWidthProc, 1, (DWORD_PTR)this);
+    tip(widthControl, L"펜 굵기: 위로 굵게, 아래로 얇게. 드래그 또는 마우스 휠로 조절합니다.");
+    setPenWidth((int)stroke);
     auto fillButton = control(main, L"BUTTON", L"채움", BS_AUTOCHECKBOX | WS_TABSTOP, 0, 0, 60, 28, ID_FILL);
     SendMessageW(fillButton, BM_SETCHECK, fill ? BST_CHECKED : BST_UNCHECKED, 0);
     topControls.push_back({ID_FILL, fillButton});
     button(ID_FONT, L"글꼴", 58);
-    button(ID_FIT, L"맞춤", 58);
 }
 int App::layoutToolbar(int width, UINT dpi) {
     auto s = [&](int v) { return MulDiv(v, dpi, 96); };
@@ -59,8 +65,8 @@ int App::layoutToolbar(int width, UINT dpi) {
             }
         }
     };
-    group(344);
-    for (UINT id : {(UINT)ID_CAPTURE, (UINT)ID_WINDOW, (UINT)ID_FULL, (UINT)ID_SCROLL}) {
+    group(430);
+    for (UINT id : {(UINT)ID_CAPTURE, (UINT)ID_NEW_CANVAS, (UINT)ID_WINDOW, (UINT)ID_FULL, (UINT)ID_SCROLL}) {
         HWND h = GetDlgItem(main, id);
         int w = s((int)(INT_PTR)GetPropW(h, L"LCBaseWidth"));
         MoveWindow(h, x, y, w, s(36), TRUE);
@@ -78,8 +84,8 @@ int App::layoutToolbar(int width, UINT dpi) {
         MoveWindow(GetDlgItem(main, ID_PALETTE + i), x + s((i % 10) * 16), y + s((i / 10) * 18), s(15), s(16),
                    TRUE);
     x += s(160);
-    group(258);
-    for (UINT id : {181u, (UINT)ID_FILL, (UINT)ID_FONT, (UINT)ID_FIT}) {
+    group(130);
+    for (UINT id : {(UINT)ID_FILL, (UINT)ID_FONT}) {
         HWND h = GetDlgItem(main, id);
         int w = s((int)(INT_PTR)GetPropW(h, L"LCBaseWidth"));
         MoveWindow(h, x, y, w, s(36), TRUE);
@@ -96,17 +102,37 @@ void App::refreshToolbar() {
             InvalidateRect(h, nullptr, FALSE);
 }
 void App::setTool(Tool next) {
+    bool hadPenWidth = penWidthVisible();
     if (next != tool)
         finishText();
     if (next != tool)
         clearPixelSelection();
     tool = next;
     refreshToolbar();
+    if (hadPenWidth != penWidthVisible())
+        layout();
     if (tool == Tool::Text)
         statusText(L"이미지 위에 텍스트 영역을 드래그하세요. Enter 줄바꿈 · Ctrl+Enter 확정 · Esc 취소");
     else if (tool == Tool::PixelSelect)
         statusText(
             L"사각형 선택 후 테두리·모서리는 크기 조절, 안쪽은 이동합니다. Ctrl+C 영역 복사 · Esc 해제");
+}
+void App::setPenWidth(int value) {
+    stroke = (float)std::clamp(value, 1, 80);
+    if (widthControl)
+        SendMessageW(widthControl, TBM_SETPOS, TRUE, 81 - (int)stroke);
+    if (widthLabel)
+        SetWindowTextW(widthLabel, (std::to_wstring((int)stroke) + L" px").c_str());
+}
+LRESULT CALLBACK App::penWidthProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR id, DWORD_PTR data) {
+    auto a = (App *)data;
+    if (m == WM_MOUSEWHEEL) {
+        a->setPenWidth((int)a->stroke + (GET_WHEEL_DELTA_WPARAM(w) > 0 ? 1 : -1));
+        return 0;
+    }
+    if (m == WM_NCDESTROY)
+        RemoveWindowSubclass(h, penWidthProc, id);
+    return DefSubclassProc(h, m, w, l);
 }
 void App::setColor(uint32_t next) {
     color = next;
