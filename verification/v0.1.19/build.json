@@ -1,0 +1,22 @@
+{
+  "Version": "0.1.19",
+  "Design": "Fluent Light movable resizable inline text editor",
+  "PEMachine": "0x8664 AMD64",
+  "ExecutableSHA256": "bcbc859d041703191b021becedd500be3b27ffbe72643e6a5fe4564bb6a95083",
+  "ExecutableBytes": 1908736,
+  "CoreChecksPassed": 49,
+  "ClipboardPixelChecksPassed": 11,
+  "PixelSelectionChecksPassed": 74,
+  "SidebarWidthRatioToPrevious": "2/3",
+  "ThumbnailBorderPassed": true,
+  "SingleRoundedHistoryFocusOutline": true,
+  "TextBoxMoveAndResizePassed": true,
+  "TextRepaintPassed": true,
+  "PixelSelectionResizePassed": true,
+  "CurrentSaveIgnoresChecks": true,
+  "CurrentSaveCancelPreservesDestination": true,
+  "HeaderAndFooterLayoutPassed": true,
+  "ComputerUseUsed": false,
+  "DesktopCapturePerformed": false,
+  "SystemClipboardModified": false
+}

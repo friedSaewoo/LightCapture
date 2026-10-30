@@ -86,6 +86,10 @@ class App {
     Image textBackdrop;
     Command textDraft;
     bool finishingText = false, positioningText = false;
+    bool textMoving = false;
+    int textResize = 0;
+    RECT textMoveRect{};
+    POINT textMoveStart{};
     POINT canvasMouse{};
     bool quit = false, busy = false, hotkey = false, ready = false, testMode = false;
     UINT hotId = 1, taskbarMessage = 0;
@@ -174,10 +178,15 @@ class App {
     void verifyPixelSelection();
     void startText(Command command);
     void finishText(bool accept = true);
-    void positionText();
+    void positionText(bool keepVisible = false);
     void updateTextStyle();
     void growText();
     RECT textScreenRect();
+    RECT textFrameRect();
+    bool textFrameHit(POINT canvasPoint);
+    int textHit(POINT canvasPoint);
+    void moveText(POINT canvasPoint);
+    void endTextMove(bool cancel = false);
     static LRESULT CALLBACK toolbarProc(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
     static LRESULT CALLBACK textProc(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
     Document *doc() {

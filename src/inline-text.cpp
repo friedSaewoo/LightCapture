@@ -15,6 +15,68 @@ RECT App::textScreenRect() {
             b.left + LONG(std::lround((r.right - v.left) * zoom)),
             b.top + LONG(std::lround((r.bottom - v.top) * zoom))};
 }
+RECT App::textFrameRect() {
+    auto r = textScreenRect();
+    int margin = MulDiv(6, GetDpiForWindow(canvas), 96);
+    InflateRect(&r, margin, margin);
+    return r;
+}
+bool App::textFrameHit(POINT p) {
+    return textHit(p) != 0;
+}
+int App::textHit(POINT p) {
+    if (!textInput || inside(textScreenRect(), p))
+        return 0;
+    auto r = textFrameRect();
+    int target = MulDiv(4, GetDpiForWindow(canvas), 96);
+    LONG x[] = {r.left, (r.left + r.right) / 2, r.right};
+    LONG y[] = {r.top, (r.top + r.bottom) / 2, r.bottom};
+    for (int row = 0; row < 3; ++row)
+        for (int col = 0; col < 3; ++col) {
+            if (row == 1 && col == 1)
+                continue;
+            if (std::abs(p.x - x[col]) <= target && std::abs(p.y - y[row]) <= target)
+                return (col == 0 ? 1 : col == 2 ? 2 : 0) | (row == 0 ? 4 : row == 2 ? 8 : 0);
+        }
+    return inside(r, p) ? 16 : 0;
+}
+void App::moveText(POINT p) {
+    if (!textMoving || !textInput || !doc())
+        return;
+    auto q = toImage(p);
+    auto v = viewRect(*doc());
+    LONG dx = q.x - textMoveStart.x, dy = q.y - textMoveStart.y;
+    textDraft.rect = textMoveRect;
+    if (textResize) {
+        LONG minW = std::min<LONG>(rw(textMoveRect), std::max(24, (int)std::ceil(textDraft.fontSize * 2)));
+        LONG minH = std::min<LONG>(rh(textMoveRect), std::max(24, (int)std::ceil(textDraft.fontSize * 1.6f)));
+        if (textResize & 1)
+            textDraft.rect.left = std::clamp(textMoveRect.left + dx, v.left, textMoveRect.right - minW);
+        if (textResize & 2)
+            textDraft.rect.right = std::clamp(textMoveRect.right + dx, textMoveRect.left + minW, v.right);
+        if (textResize & 4)
+            textDraft.rect.top = std::clamp(textMoveRect.top + dy, v.top, textMoveRect.bottom - minH);
+        if (textResize & 8)
+            textDraft.rect.bottom = std::clamp(textMoveRect.bottom + dy, textMoveRect.top + minH, v.bottom);
+    } else {
+        dx = std::clamp(dx, v.left - textMoveRect.left, v.right - textMoveRect.right);
+        dy = std::clamp(dy, v.top - textMoveRect.top, v.bottom - textMoveRect.bottom);
+        OffsetRect(&textDraft.rect, dx, dy);
+    }
+    positionText();
+}
+void App::endTextMove(bool cancel) {
+    if (!textMoving)
+        return;
+    textMoving = false;
+    textResize = 0;
+    if (cancel && textInput) {
+        textDraft.rect = textMoveRect;
+        positionText();
+    }
+    if (GetCapture() == canvas)
+        ReleaseCapture();
+}
 void App::startText(Command c) {
     finishText();
     if (!doc() || !original)
@@ -59,7 +121,7 @@ void App::startText(Command c) {
         SetFocus(textInput);
     selectedObject = -1;
     InvalidateRect(canvas, nullptr, FALSE);
-    statusText(L"이미지 위에서 입력 중 · Enter 줄바꿈 · Ctrl+Enter 또는 바깥 클릭으로 확정 · Esc 취소");
+    statusText(L"조절점: 상자 크기 · 테두리: 이동 · Enter: 줄바꿈 · Ctrl+Enter/바깥 클릭: 확정 · Esc: 취소");
 }
 void App::updateTextStyle() {
     if (!textInput)
@@ -78,10 +140,23 @@ void App::updateTextStyle() {
         DeleteObject(old);
     positionText();
 }
-void App::positionText() {
+void App::positionText(bool keepVisible) {
     if (!textInput || !doc() || positioningText)
         return;
     positioningText = true;
+    if (keepVisible) {
+        RECT client{};
+        GetClientRect(canvas, &client);
+        auto frame = textFrameRect();
+        int margin = MulDiv(12, GetDpiForWindow(canvas), 96);
+        auto shift = [&](LONG start, LONG end, LONG limit) {
+            if (end - start > limit - 2 * margin || start < margin)
+                return margin - start;
+            return end > limit - margin ? limit - margin - end : 0L;
+        };
+        panX += shift(frame.left, frame.right, client.right);
+        panY += shift(frame.top, frame.bottom, client.bottom);
+    }
     auto r = textScreenRect();
     HDC dc = GetDC(canvas), mem = CreateCompatibleDC(dc);
     HBITMAP bitmap = CreateCompatibleBitmap(dc, std::max(1, rw(r)), std::max(1, rh(r)));
@@ -134,6 +209,7 @@ void App::finishText(bool accept) {
     if (!textInput || finishingText)
         return;
     finishingText = true;
+    endTextMove();
     auto h = textInput;
     if (accept) {
         auto context = ImmGetContext(h);
@@ -167,10 +243,50 @@ void App::finishText(bool accept) {
     }
     InvalidateRect(canvas, nullptr, FALSE);
 }
+static void paintInput(HWND h, HDC destination, HBRUSH background) {
+    RECT r{};
+    GetClientRect(h, &r);
+    HDC buffer = CreateCompatibleDC(destination);
+    HBITMAP bitmap = CreateCompatibleBitmap(destination, std::max(1, rw(r)), std::max(1, rh(r)));
+    if (!buffer || !bitmap) {
+        if (bitmap)
+            DeleteObject(bitmap);
+        if (buffer)
+            DeleteDC(buffer);
+        DefSubclassProc(h, WM_PRINTCLIENT, (WPARAM)destination, PRF_CLIENT);
+        return;
+    }
+    auto old = SelectObject(buffer, bitmap);
+    // EDIT can update only the changed glyphs. Always rebuild from the image beneath them.
+    FillRect(buffer, &r, background ? background : (HBRUSH)GetStockObject(WHITE_BRUSH));
+    DefSubclassProc(h, WM_PRINTCLIENT, (WPARAM)buffer, PRF_CLIENT);
+    BitBlt(destination, 0, 0, rw(r), rh(r), buffer, 0, 0, SRCCOPY);
+    SelectObject(buffer, old);
+    DeleteObject(bitmap);
+    DeleteDC(buffer);
+}
 LRESULT CALLBACK App::textProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR id, DWORD_PTR data) {
     auto a = (App *)data;
+    if (m == WM_ERASEBKGND)
+        return 1;
+    if (m == WM_PAINT) {
+        PAINTSTRUCT paint{};
+        HDC dc = w ? (HDC)w : BeginPaint(h, &paint);
+        paintInput(h, dc, a->textBrush);
+        if (!w)
+            EndPaint(h, &paint);
+        return 0;
+    }
+    if (m == WM_PRINTCLIENT) {
+        paintInput(h, (HDC)w, a->textBrush);
+        return 0;
+    }
     if (m == WM_KEYDOWN) {
         if (w == VK_ESCAPE) {
+            if (a->textMoving) {
+                a->endTextMove(true);
+                return 0;
+            }
             a->finishText(false);
             if (!a->testMode)
                 SetFocus(a->canvas);

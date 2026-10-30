@@ -1,6 +1,33 @@
 #include "app.h"
 #include "toolbar.h"
 namespace lc {
+static std::vector<uint32_t> inputFrame(HWND h, const std::vector<uint32_t> &previous = {}) {
+    RECT r{};
+    GetClientRect(h, &r);
+    BITMAPINFO info{};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = rw(r);
+    info.bmiHeader.biHeight = -rh(r);
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    HDC dc = CreateCompatibleDC(nullptr);
+    uint32_t *pixels = nullptr;
+    HBITMAP bitmap = CreateDIBSection(dc, &info, DIB_RGB_COLORS, (void **)&pixels, nullptr, 0);
+    require(bitmap && pixels, "input repaint test allocation failed");
+    auto old = SelectObject(dc, bitmap);
+    size_t count = (size_t)rw(r) * rh(r);
+    for (size_t i = 0; i < count; ++i)
+        pixels[i] = previous.size() == count ? previous[i] : 0x00ff00ff;
+    SendMessageW(h, WM_PRINTCLIENT, (WPARAM)dc, PRF_CLIENT);
+    GdiFlush();
+    std::vector<uint32_t> result(pixels, pixels + count);
+    for (auto &pixel : result)
+        pixel &= 0x00ffffff;
+    SelectObject(dc, old);
+    DeleteObject(bitmap);
+    DeleteDC(dc);
+    return result;
+}
 static void preview(HWND window, const fs::path &path) {
     RECT r{};
     GetClientRect(window, &r);
@@ -47,11 +74,107 @@ void App::verifyEditor() {
     canvasUp({b.left + 600, b.top + 345});
     require(textInput && GetParent(textInput) == canvas && textBrush && doc()->cursor == before,
             "drag did not create an uncommitted inline editor");
+    auto input = textInput;
+    auto initialRect = textDraft.rect;
+    auto border = textScreenRect();
+    POINT grip{border.left + rw(border) / 3, border.top - 3};
+    canvasMouse = grip;
+    require(textHit(grip) == 16 && canvasCursor(96) == LoadCursor(nullptr, IDC_SIZEALL),
+            "text frame did not expose a move cursor");
+    canvasDown(grip);
+    canvasMove({grip.x + 40, grip.y + 24});
+    canvasUp({grip.x + 40, grip.y + 24});
+    require(textInput == input && !textMoving && textDraft.rect.left == initialRect.left + 40 &&
+                textDraft.rect.top == initialRect.top + 24 && rw(textDraft.rect) == rw(initialRect) &&
+                doc()->cursor == before,
+            "moving an empty input box committed text or changed its size");
+    SetWindowTextW(textInput, L"잔상을 확인할 긴 글자입니다.\r\n두 번째 줄도 지워져야 합니다.");
+    auto oldFrame = inputFrame(textInput);
+    SendMessageW(textInput, EM_SETSEL, 0, -1);
+    SendMessageW(textInput, EM_REPLACESEL, FALSE, (LPARAM)L"짧은 글자");
+    auto replacedFrame = inputFrame(textInput, oldFrame);
+    require(replacedFrame == inputFrame(textInput) && replacedFrame != oldFrame,
+            "replacing text retained previous glyph pixels");
+    SendMessageW(textInput, EM_SETSEL, 0, -1);
+    SendMessageW(textInput, EM_REPLACESEL, FALSE, (LPARAM)L"");
+    require(inputFrame(textInput, replacedFrame) == inputFrame(textInput),
+            "deleting text failed to restore the image background");
     SetWindowTextW(textInput, L"이미지를 보며 바로 입력합니다.\r\n여러 줄도 영역 안에서 작성합니다.");
+    auto sizedRect = textDraft.rect;
+    auto inputFontBefore = inputFont;
+    auto fontSizeBefore = textDraft.fontSize;
+    SendMessageW(textInput, EM_SETSEL, 3, 7);
+    for (int row = 0; row < 3; ++row)
+        for (int col = 0; col < 3; ++col) {
+            if (row == 1 && col == 1)
+                continue;
+            textDraft.rect = sizedRect;
+            positionText();
+            auto frame = textFrameRect();
+            POINT handle{frame.left + rw(frame) * col / 2, frame.top + rh(frame) * row / 2};
+            int hit = (col == 0 ? 1 : col == 2 ? 2 : 0) | (row == 0 ? 4 : row == 2 ? 8 : 0);
+            require(textHit(handle) == hit, "text resize handle hit mismatch");
+            canvasDown(handle);
+            canvasMove({handle.x + 12, handle.y + 10});
+            canvasUp({handle.x + 12, handle.y + 10});
+            auto expected = sizedRect;
+            if (hit & 1)
+                expected.left += 12;
+            if (hit & 2)
+                expected.right += 12;
+            if (hit & 4)
+                expected.top += 10;
+            if (hit & 8)
+                expected.bottom += 10;
+            DWORD selectionStart = 0, selectionEnd = 0;
+            SendMessageW(textInput, EM_GETSEL, (WPARAM)&selectionStart, (LPARAM)&selectionEnd);
+            require(EqualRect(&textDraft.rect, &expected) && textInput == input &&
+                        textDraft.fontSize == fontSizeBefore && inputFont == inputFontBefore &&
+                        selectionStart == 3 && selectionEnd == 7 && doc()->cursor == before &&
+                        GetWindowTextLengthW(textInput) > 20,
+                    "resizing the text box changed glyph size, text selection, input handle or history");
+        }
+    textDraft.rect = sizedRect;
+    positionText();
+    auto frame = textFrameRect();
+    canvasDown({frame.right, frame.bottom});
+    canvasUp({frame.left - 100, frame.top - 100});
+    require(rw(textDraft.rect) >= 24 && rh(textDraft.rect) >= 24 && textInput == input,
+            "text resize inverted or removed the input box");
+    textDraft.rect = sizedRect;
+    positionText();
+    frame = textFrameRect();
+    canvasDown({frame.right, frame.bottom});
+    canvasUp({b.right + 100, b.bottom + 100});
+    auto view = viewRect(*doc());
+    require(textDraft.rect.right == view.right && textDraft.rect.bottom == view.bottom,
+            "text resize escaped visible image bounds");
+    textDraft.rect = sizedRect;
+    positionText();
+    border = textScreenRect();
+    grip = {border.left + rw(border) / 3, border.top - 3};
+    canvasDown(grip);
+    canvasMove({grip.x + 100, grip.y + 80});
+    SendMessageW(textInput, WM_KEYDOWN, VK_ESCAPE, 0);
+    require(EqualRect(&textDraft.rect, &sizedRect) && textInput == input && !textMoving && !textResize &&
+                doc()->cursor == before,
+            "Esc during input movement failed to restore draft position and keep text editable");
     command(ID_PALETTE + 8);
     require(textInput && textDraft.color == Palette[8].value,
             "palette click committed or failed to recolor inline text");
     preview(main, store.root / L"inline-text-preview.png");
+    RECT inlineWindow{};
+    GetWindowRect(main, &inlineWindow);
+    SetWindowPos(main, nullptr, 0, 0, 720, 480, SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOZORDER);
+    RECT inputClient{};
+    GetClientRect(canvas, &inputClient);
+    auto inputBounds = textFrameRect();
+    require(inputBounds.left >= 0 && inputBounds.top >= 0 && inputBounds.right <= inputClient.right &&
+                inputBounds.bottom <= inputClient.bottom,
+            "resizing the main window hid the active text box");
+    preview(main, store.root / L"inline-text-720-preview.png");
+    SetWindowPos(main, nullptr, 0, 0, rw(inlineWindow), rh(inlineWindow),
+                 SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOZORDER);
     finishText(false);
     require(!textInput && !textBackdrop && doc()->cursor == before, "cancel changed document history");
     Command text;
@@ -76,16 +199,27 @@ void App::verifyEditor() {
     selectedObject = (int)doc()->cursor - 1;
     editText();
     require(textInput && textDraft.target == (int)before, "existing text did not reopen inline");
+    auto persistedRect = doc()->commands[before].rect;
+    border = textScreenRect();
+    grip = {border.left + rw(border) / 3, border.top - 3};
+    canvasDown(grip);
+    canvasUp({grip.x + 20, grip.y + 15});
     SetWindowTextW(textInput, L"취소할 수정");
     finishText(false);
     require(doc()->cursor == before + 1 && doc()->commands.back().text == savedText,
             "cancel damaged an existing text object");
+    require(EqualRect(&doc()->commands[before].rect, &persistedRect),
+            "cancelling an existing text move persisted draft geometry");
     selectedObject = (int)doc()->cursor - 1;
     editText();
+    frame = textFrameRect();
+    canvasDown({frame.right, frame.bottom});
+    canvasUp({frame.right + 40, frame.bottom + 20});
     SetWindowTextW(textInput, L"이미지 위에서 수정한 텍스트");
     finishText();
     require(doc()->cursor == before + 2 && doc()->commands.back().target == (int)before &&
-                erased(*doc())[before],
+                erased(*doc())[before] && rw(doc()->commands.back().rect) == rw(persistedRect) + 40 &&
+                rh(doc()->commands.back().rect) == rh(persistedRect) + 20,
             "editing existing text left both old and new versions visible");
     startText(text);
     finishText();
@@ -213,6 +347,10 @@ void App::verifyEditor() {
               "  \"new_and_existing_text_cancel\": true,\n  \"boxed_text_persistence\": true,\n"
               "  \"text_replacement_hides_old_object\": true,\n  \"empty_text_ignored\": true,\n"
               "  \"save_commits_pending_text\": true,\n  \"minimum_width_controls_fit\": true,\n"
+              "  \"text_input_border_move_keeps_draft_editable\": true,\n"
+              "  \"text_box_eight_handles_resize_without_scaling_font\": true,\n"
+              "  \"text_repaint_replace_delete_clears_old_glyphs\": true,\n"
+              "  \"text_geometry_bounds_cancel_and_persistence\": true,\n"
               "  \"capture_toolbar_mode_switches\": true,\n  \"capture_toolbar_recent_list\": true,\n"
               "  \"capture_toolbar_fullscreen\": true,\n"
               "  \"hotkey_repeat_cancels_region_window_fixed\": true,\n"

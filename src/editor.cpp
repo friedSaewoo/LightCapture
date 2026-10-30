@@ -2,6 +2,15 @@
 #include "theme.h"
 namespace lc {
 HCURSOR App::canvasCursor(UINT dpi) {
+    int textHandle = textMoving ? (textResize ? textResize : 16) : textHit(canvasMouse);
+    if (textHandle) {
+        auto cursor = textHandle == 5 || textHandle == 10  ? IDC_SIZENWSE
+                      : textHandle == 6 || textHandle == 9 ? IDC_SIZENESW
+                      : textHandle & 3                     ? IDC_SIZEWE
+                      : textHandle & 12                    ? IDC_SIZENS
+                                                           : IDC_SIZEALL;
+        return LoadCursor(nullptr, cursor);
+    }
     if (panning)
         return LoadCursor(nullptr, IDC_SIZEALL);
     if (tool == Tool::PixelSelect) {
@@ -199,10 +208,28 @@ void App::paintCanvas(HDC dc) {
                 g.Restore(state);
             }
             if (textInput) {
-                auto rect = textScreenRect();
-                Gdiplus::Pen outline(Color(255, 37, 99, 235), 1);
+                auto inner = textScreenRect(), rect = textFrameRect();
+                Gdiplus::SolidBrush frame(Color(theme::Tint));
+                g.FillRectangle(&frame, (int)rect.left, (int)rect.top, rw(rect), inner.top - rect.top);
+                g.FillRectangle(&frame, (int)rect.left, (int)inner.bottom, rw(rect),
+                                rect.bottom - inner.bottom);
+                g.FillRectangle(&frame, (int)rect.left, (int)inner.top, inner.left - rect.left, rh(inner));
+                g.FillRectangle(&frame, (int)inner.right, (int)inner.top, rect.right - inner.right,
+                                rh(inner));
+                Gdiplus::Pen outline(Color(theme::Blue), 1);
                 outline.SetDashStyle(Gdiplus::DashStyleDash);
-                g.DrawRectangle(&outline, (int)rect.left - 1, (int)rect.top - 1, rw(rect) + 1, rh(rect) + 1);
+                g.DrawRectangle(&outline, (int)rect.left, (int)rect.top, rw(rect), rh(rect));
+                float size = (float)MulDiv(6, GetDpiForWindow(canvas), 96);
+                Gdiplus::SolidBrush handle(Color::White);
+                Gdiplus::Pen edge(Color(theme::Blue), 1);
+                for (int row = 0; row < 3; ++row)
+                    for (int col = 0; col < 3; ++col) {
+                        if (row == 1 && col == 1)
+                            continue;
+                        float x = rect.left + rw(rect) * col / 2.f, y = rect.top + rh(rect) * row / 2.f;
+                        g.FillRectangle(&handle, x - size / 2, y - size / 2, size, size);
+                        g.DrawRectangle(&edge, x - size / 2, y - size / 2, size, size);
+                    }
             }
             Gdiplus::Pen imageEdge(Color(theme::Line), 1);
             g.DrawRectangle(&imageEdge, (int)b.left - 1, (int)b.top - 1, rw(b) + 1, rh(b) + 1);
@@ -423,6 +450,14 @@ LRESULT CALLBACK App::listProc(HWND h, UINT msg, WPARAM w, LPARAM l, UINT_PTR id
 void App::canvasDown(POINT p) {
     if (!doc() || !rendered)
         return;
+    if (textFrameHit(p)) {
+        textMoving = true;
+        textResize = textHit(p) == 16 ? 0 : textHit(p);
+        textMoveRect = textDraft.rect;
+        textMoveStart = toImage(p);
+        SetCapture(canvas);
+        return;
+    }
     finishText();
     if (!testMode)
         SetFocus(canvas);
@@ -495,9 +530,14 @@ void App::canvasMove(POINT p) {
     canvasMouse = p;
     if (!testMode && GetCapture() == canvas)
         SetCursor(canvasCursor(GetDpiForWindow(canvas)));
+    if (textMoving) {
+        moveText(p);
+        return;
+    }
     if (panning) {
         panX = panOrigin.x + p.x - dragOrigin.x;
         panY = panOrigin.y + p.y - dragOrigin.y;
+        positionText();
         InvalidateRect(canvas, nullptr, FALSE);
         return;
     }
@@ -548,6 +588,11 @@ void App::canvasMove(POINT p) {
     InvalidateRect(canvas, nullptr, FALSE);
 }
 void App::canvasUp(POINT p) {
+    if (textMoving) {
+        moveText(p);
+        endTextMove();
+        return;
+    }
     if (pixelSelecting || pixelMoving) {
         pixelMove(toImage(p));
         pixelUp();
@@ -752,8 +797,12 @@ LRESULT CALLBACK App::canvasProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             }
             break;
         case WM_COMMAND:
-            if ((HWND)l == a->textInput && HIWORD(w) == EN_CHANGE)
-                a->growText();
+            if ((HWND)l == a->textInput) {
+                if (HIWORD(w) == EN_CHANGE)
+                    a->growText();
+                if (HIWORD(w) == EN_CHANGE || HIWORD(w) == EN_UPDATE || HIWORD(w) == EN_VSCROLL)
+                    InvalidateRect(a->textInput, nullptr, FALSE);
+            }
             return 0;
         case WM_ERASEBKGND:
             return 1;
@@ -806,6 +855,10 @@ LRESULT CALLBACK App::canvasProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             return 0;
         case WM_KEYDOWN:
             if (w == VK_ESCAPE) {
+                if (a->textMoving) {
+                    a->endTextMove(true);
+                    return 0;
+                }
                 a->clearPixelSelection();
                 a->dragging = false;
                 a->panning = false;
@@ -815,11 +868,12 @@ LRESULT CALLBACK App::canvasProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             return 0;
         case WM_CANCELMODE:
         case WM_CAPTURECHANGED:
+            a->endTextMove(true);
             if (a->pixelMoving || a->pixelSelecting)
                 a->clearPixelSelection();
             return 0;
         case WM_SIZE:
-            a->positionText();
+            a->positionText(true);
             InvalidateRect(h, nullptr, FALSE);
             return 0;
         case WM_SETCURSOR:

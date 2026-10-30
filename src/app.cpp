@@ -544,7 +544,7 @@ void App::command(UINT id) {
         DestroyWindow(main);
         break;
     case ID_ABOUT:
-        message(main, L"LightCapture 0.1.18\n전역 캡처 · 통합 편집 · 최근 캡처\n\nCtrl + Shift + X "
+        message(main, L"LightCapture 0.1.19\n전역 캡처 · 통합 편집 · 최근 캡처\n\nCtrl + Shift + X "
                       L"(환경설정에서 변경)\n닫기: 트레이 대기 / 파일 메뉴: 프로그램 종료\n\n성능·알캡처 "
                       L"동등성 전체 검증은 아직 완료되지 않았습니다.");
         break;
@@ -609,8 +609,9 @@ LRESULT CALLBACK App::mainProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                               0, 0, 192, 600, ID_LIST);
             SendMessageW(a->list, LB_SETITEMHEIGHT, 0, 116);
             SetWindowSubclass(a->list, listProc, 1, (DWORD_PTR)a);
-            a->canvas = CreateWindowExW(0, L"LCCanvas", L"편집 화면", WS_CHILD | WS_VISIBLE | WS_TABSTOP, 194,
-                                        90, 960, 600, h, (HMENU)ID_CANVAS, a->instance, a);
+            a->canvas = CreateWindowExW(0, L"LCCanvas", L"편집 화면",
+                                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_CLIPCHILDREN, 194, 90, 960,
+                                        600, h, (HMENU)ID_CANVAS, a->instance, a);
             a->status = CreateWindowExW(0, STATUSCLASSNAMEW, L"준비", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, h,
                                         nullptr, a->instance, nullptr);
             a->layout();
