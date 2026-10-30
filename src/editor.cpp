@@ -1,6 +1,34 @@
 #include "app.h"
 #include "theme.h"
 namespace lc {
+void App::clearDisplayCache() {
+    displayCache.reset();
+    displayCacheSource = nullptr;
+    displayCacheView = {};
+}
+Bitmap *App::scaledDisplay(Bitmap &source, RECT view, int width, int height) {
+    if (width <= 0 || height <= 0 || (uint64_t)width * height > 4ull * 1024 * 1024)
+        return nullptr;
+    if (displayCache && displayCacheSource == &source && EqualRect(&view, &displayCacheView) &&
+        displayCache->GetWidth() == (UINT)width && displayCache->GetHeight() == (UINT)height)
+        return displayCache.get();
+    clearDisplayCache();
+    auto next = std::make_unique<Bitmap>(width, height, PixelFormat32bppARGB);
+    require(next->GetLastStatus() == Gdiplus::Ok, "display cache allocation failed");
+    {
+        Graphics g(next.get());
+        g.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
+        g.SetInterpolationMode(width >= rw(view) ? Gdiplus::InterpolationModeNearestNeighbor
+                                                 : Gdiplus::InterpolationModeHighQualityBicubic);
+        require(g.DrawImage(&source, Gdiplus::Rect(0, 0, width, height), view.left, view.top, rw(view),
+                            rh(view), Gdiplus::UnitPixel) == Gdiplus::Ok,
+                "display cache rendering failed");
+    }
+    displayCache = std::move(next);
+    displayCacheSource = &source;
+    displayCacheView = view;
+    return displayCache.get();
+}
 HCURSOR App::canvasCursor(UINT dpi) {
     int canvasHit = canvasGrowing ? canvasGrowHit : canvasEdgeHit(canvasMouse);
     if (canvasHit)
@@ -67,6 +95,7 @@ HCURSOR App::canvasCursor(UINT dpi) {
 void App::refreshList() {
     refreshHistoryActions();
     int top = (int)SendMessageW(list, LB_GETTOPINDEX, 0, 0);
+    SendMessageW(list, WM_SETREDRAW, FALSE, 0);
     SendMessageW(list, LB_RESETCONTENT, 0, 0);
     for (auto &d : store.docs) {
         auto size = L"  " + std::to_wstring(d.width) + L" × " + std::to_wstring(d.height);
@@ -76,8 +105,12 @@ void App::refreshList() {
     if (selected >= 0)
         SendMessageW(list, LB_SETCURSEL, selected, 0);
     SendMessageW(list, LB_SETTOPINDEX, std::max(0, top), 0);
+    SendMessageW(list, WM_SETREDRAW, TRUE, 0);
+    InvalidateRect(list, nullptr, FALSE);
     updateTitle();
-    layout();
+    if (widthControl &&
+        (((GetWindowLongPtrW(widthControl, GWL_STYLE) & WS_VISIBLE) != 0) != penWidthVisible()))
+        layout();
 }
 void App::select(int index) {
     finishCanvasGrow(true);
@@ -111,6 +144,7 @@ void App::select(int index) {
     updateTitle();
 }
 void App::rebuild() {
+    clearDisplayCache();
     if (doc() && original)
         rendered = render(*original, *doc());
     else
@@ -125,6 +159,7 @@ void App::persist() {
     }
 }
 void App::add(Image image, const std::wstring &name) {
+    clearDisplayCache();
     finishText();
     require(image != nullptr, "empty image");
     store.add(*image, name);
@@ -221,12 +256,18 @@ void App::paintCanvas(HDC dc) {
             g.FillRectangle(&white, b.left, b.top, rw(b), rh(b));
             g.SetInterpolationMode(zoom >= 1 ? Gdiplus::InterpolationModeNearestNeighbor
                                              : Gdiplus::InterpolationModeHighQualityBicubic);
-            g.DrawImage(dragging && objectBackdrop     ? objectBackdrop.get()
-                        : pixelMoving && pixelBackdrop ? pixelBackdrop.get()
-                        : textInput && textBackdrop    ? textBackdrop.get()
-                                                       : rendered.get(),
-                        Gdiplus::Rect(imageTarget.left, imageTarget.top, rw(imageTarget), rh(imageTarget)),
-                        r.left, r.top, rw(r), rh(r), Gdiplus::UnitPixel);
+            auto source = dragging && objectBackdrop     ? objectBackdrop.get()
+                          : pixelMoving && pixelBackdrop ? pixelBackdrop.get()
+                          : textInput && textBackdrop    ? textBackdrop.get()
+                                                         : rendered.get();
+            if (auto cached = scaledDisplay(*source, r, rw(imageTarget), rh(imageTarget)))
+                g.DrawImage(cached, imageTarget.left, imageTarget.top, (int)cached->GetWidth(),
+                            (int)cached->GetHeight());
+            else
+                g.DrawImage(
+                    source,
+                    Gdiplus::Rect(imageTarget.left, imageTarget.top, rw(imageTarget), rh(imageTarget)),
+                    r.left, r.top, rw(r), rh(r), Gdiplus::UnitPixel);
             if (dragging) {
                 auto state = g.Save();
                 g.SetClip(Gdiplus::Rect(b.left, b.top, rw(b), rh(b)));
@@ -517,7 +558,7 @@ void App::canvasDown(POINT p) {
     finishText();
     if (!testMode)
         SetFocus(canvas);
-    if (GetKeyState(VK_SPACE) & 0x8000) {
+    if (!testMode && (GetKeyState(VK_SPACE) & 0x8000)) {
         panning = true;
         dragOrigin = p;
         panOrigin = {panX, panY};
@@ -567,11 +608,12 @@ void App::canvasDown(POINT p) {
                 draft = c;
                 draft.target = i;
                 selectedObject = i;
-                resizing = (GetKeyState(VK_SHIFT) & 0x8000) ||
+                resizing = (!testMode && (GetKeyState(VK_SHIFT) & 0x8000)) ||
                            (std::abs(q.x - c.rect.right) < 10 && std::abs(q.y - c.rect.bottom) < 10);
                 start = q;
                 dragging = true;
                 if (c.tool == Tool::PasteImage && c.imageData) {
+                    clearDisplayCache();
                     objectPreview = decodeImageBytes(*c.imageData);
                     auto background = *doc();
                     Command erase;

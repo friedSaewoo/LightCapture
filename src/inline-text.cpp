@@ -78,6 +78,7 @@ void App::endTextMove(bool cancel) {
         ReleaseCapture();
 }
 void App::startText(Command c) {
+    clearDisplayCache();
     finishText();
     if (!doc() || !original)
         return;
@@ -165,10 +166,15 @@ void App::positionText(bool keepVisible) {
         Graphics g(mem);
         g.Clear(Color(255, 231, 234, 239));
         auto b = imageBounds(), v = viewRect(*doc());
-        g.SetInterpolationMode(zoom >= 1 ? Gdiplus::InterpolationModeNearestNeighbor
-                                         : Gdiplus::InterpolationModeHighQualityBicubic);
-        g.DrawImage(textBackdrop.get(), Gdiplus::Rect(b.left - r.left, b.top - r.top, rw(b), rh(b)), v.left,
-                    v.top, rw(v), rh(v), Gdiplus::UnitPixel);
+        if (auto cached = scaledDisplay(*textBackdrop, v, rw(b), rh(b)))
+            g.DrawImage(cached, b.left - r.left, b.top - r.top, (int)cached->GetWidth(),
+                        (int)cached->GetHeight());
+        else {
+            g.SetInterpolationMode(zoom >= 1 ? Gdiplus::InterpolationModeNearestNeighbor
+                                             : Gdiplus::InterpolationModeHighQualityBicubic);
+            g.DrawImage(textBackdrop.get(), Gdiplus::Rect(b.left - r.left, b.top - r.top, rw(b), rh(b)),
+                        v.left, v.top, rw(v), rh(v), Gdiplus::UnitPixel);
+        }
     }
     auto brush = CreatePatternBrush(bitmap);
     SelectObject(mem, old);
@@ -209,6 +215,7 @@ void App::finishText(bool accept) {
     if (!textInput || finishingText)
         return;
     finishingText = true;
+    clearDisplayCache();
     endTextMove();
     auto h = textInput;
     if (accept) {

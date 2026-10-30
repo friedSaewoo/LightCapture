@@ -49,6 +49,29 @@ static void preview(HWND window, const fs::path &path) {
     ReleaseDC(window, dc);
 }
 void App::verifyEditor() {
+    require(aboutText().find(L"알캡") == std::wstring::npos, "about text still contains removed comparison");
+    Bitmap displayFixture(8, 8, PixelFormat32bppARGB);
+    {
+        Graphics g(&displayFixture);
+        g.Clear(Color(0xffe5484d));
+    }
+    auto cached = scaledDisplay(displayFixture, {0, 0, 8, 8}, 16, 16);
+    Color displayed{};
+    cached->GetPixel(8, 8, &displayed);
+    require(displayed.GetValue() == 0xffe5484d &&
+                scaledDisplay(displayFixture, {0, 0, 8, 8}, 16, 16) == cached,
+            "scaled display lost pixels or failed to reuse a steady frame");
+    clearDisplayCache();
+    {
+        Graphics g(&displayFixture);
+        g.Clear(Color(0xff1761d7));
+    }
+    cached = scaledDisplay(displayFixture, {0, 0, 8, 8}, 16, 16);
+    cached->GetPixel(8, 8, &displayed);
+    require(displayed.GetValue() == 0xff1761d7, "display cache retained stale edited pixels");
+    require(!scaledDisplay(displayFixture, {0, 0, 8, 8}, 8192, 8192),
+            "display cache allocated an unbounded zoom image");
+    clearDisplayCache();
     require(!GetDlgItem(main, ID_COPY) && !GetDlgItem(main, ID_UNDO) && !GetDlgItem(main, ID_REDO) &&
                 !GetDlgItem(main, 180),
             "old action buttons or tool dropdown remain");
@@ -343,6 +366,8 @@ void App::verifyEditor() {
     std::ofstream result(store.root / L"editor-verification.json");
     result << "{\n  \"icon_tools_11\": true,\n  \"palette_colors_20\": true,\n"
               "  \"unneeded_buttons_and_tool_dropdown_removed\": true,\n"
+              "  \"about_comparison_removed\": true,\n"
+              "  \"display_cache_pixels_reuse_invalidation_and_limit\": true,\n"
               "  \"drag_creates_inline_editor\": true,\n  \"live_palette_while_typing\": true,\n"
               "  \"new_and_existing_text_cancel\": true,\n  \"boxed_text_persistence\": true,\n"
               "  \"text_replacement_hides_old_object\": true,\n  \"empty_text_ignored\": true,\n"

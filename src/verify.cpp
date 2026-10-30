@@ -87,7 +87,7 @@ void App::verify() {
     auto previousMem = PROCESS_MEMORY_COUNTERS_EX{sizeof(PROCESS_MEMORY_COUNTERS_EX)};
     GetProcessMemoryInfo(GetCurrentProcess(), (PROCESS_MEMORY_COUNTERS *)&previousMem, sizeof(previousMem));
     hide();
-    require(!original && !rendered && thumbs.empty(), "hide retained decoded images");
+    require(!original && !rendered && !displayCache && thumbs.empty(), "hide retained decoded images");
     select(0);
     require(doc()->id == id && doc()->cursor == commands, "selection lost document state");
     undo();

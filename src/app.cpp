@@ -111,6 +111,14 @@ bool textPrompt(HWND owner, const wchar_t *title, std::wstring &value, bool mult
         PostMessageW(app->main, WM_COMMAND, ID_CAPTURE, 0);
     return p.ok;
 }
+std::wstring App::aboutText() const {
+    return std::wstring(AppName) + L" " + Version +
+           L"\nWindows 11 x64 · 캡처 · 그림판 · 이미지 편집\n\n"
+           L"캡처 단축키: " +
+           hotkeyName(store.settings.modifiers, store.settings.key) +
+           L"\n새 그림판: Ctrl+N · 현재 이미지 저장: Ctrl+S\n이미지 복사: Ctrl+C · 붙여넣기: Ctrl+V\n"
+           L"닫기: 트레이 대기\n프로그램 종료: 파일 메뉴 → 프로그램 종료";
+}
 void App::log(const std::string &s) {
     std::ofstream f(store.root / L"diagnostics.log", std::ios::app);
     f << GetTickCount64() << " " << s << "\n";
@@ -188,6 +196,7 @@ void App::show() {
     SetFocus(canvas);
 }
 void App::hide() {
+    clearDisplayCache();
     finishCanvasGrow(true);
     objectPreview.reset();
     objectBackdrop.reset();
@@ -541,9 +550,7 @@ void App::command(UINT id) {
         DestroyWindow(main);
         break;
     case ID_ABOUT:
-        message(main, L"LightCapture 0.1.22\n전역 캡처 · 통합 편집 · 최근 캡처\n\nCtrl + Shift + X "
-                      L"(환경설정에서 변경)\n닫기: 트레이 대기 / 파일 메뉴: 프로그램 종료\n\n성능·알캡처 "
-                      L"동등성 전체 검증은 아직 완료되지 않았습니다.");
+        message(main, aboutText());
         break;
     }
 }
@@ -1081,7 +1088,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
     InitCommonControlsEx(&ic);
     int argc;
     auto argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    bool hidden = false, smoke = false, verify = false, customData = false;
+    bool hidden = false, smoke = false, verify = false, customData = false, benchmark = false;
     fs::path root = defaultData();
     for (int i = 1; i < argc; i++) {
         if (wcscmp(argv[i], L"--tray") == 0)
@@ -1091,6 +1098,10 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
             hidden = true;
         } else if (wcscmp(argv[i], L"--verify") == 0) {
             verify = true;
+            smoke = true;
+            hidden = true;
+        } else if (wcscmp(argv[i], L"--benchmark") == 0) {
+            benchmark = true;
             smoke = true;
             hidden = true;
         } else if (wcscmp(argv[i], L"--data") == 0 && i + 1 < argc) {
@@ -1125,6 +1136,10 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
             instance.create(inst, hidden);
             if (verify) {
                 instance.verify();
+                PostMessageW(instance.main, WM_COMMAND, ID_QUIT, 0);
+            }
+            if (benchmark) {
+                instance.benchmark();
                 PostMessageW(instance.main, WM_COMMAND, ID_QUIT, 0);
             }
             if (smoke)

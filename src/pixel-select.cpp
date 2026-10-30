@@ -1,6 +1,7 @@
 #include "app.h"
 namespace lc {
 void App::clearPixelSelection() {
+    clearDisplayCache();
     if ((pixelSelecting || pixelMoving) && GetCapture() == canvas)
         ReleaseCapture();
     pixelReady = pixelSelecting = pixelMoving = false;
@@ -78,6 +79,7 @@ void App::pixelMove(POINT q) {
     InvalidateRect(canvas, nullptr, FALSE);
 }
 void App::pixelUp() {
+    clearDisplayCache();
     bool moved = pixelMoving && !EqualRect(&pixelRect, &pixelSource);
     auto source = pixelSource, destination = pixelRect;
     pixelReady = rw(destination) > 0 && rh(destination) > 0;

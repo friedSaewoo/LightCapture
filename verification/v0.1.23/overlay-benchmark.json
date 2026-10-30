@@ -1,0 +1,10 @@
+{
+  "kind": "synthetic offscreen render CPU time; not input-to-display latency",
+  "frames_per_path": 60,
+  "desktop_capture": false,
+  "cases": [
+    {"width": 1920, "height": 1080, "prepare_ms": 5.150, "v010_median_ms": 12.755, "v010_p95_ms": 14.084, "v011_median_ms": 0.315, "v011_p95_ms": 0.461},
+    {"width": 3840, "height": 2160, "prepare_ms": 20.583, "v010_median_ms": 49.998, "v010_p95_ms": 60.572, "v011_median_ms": 0.429, "v011_p95_ms": 0.626},
+    {"width": 7680, "height": 2160, "prepare_ms": 41.134, "v010_median_ms": 97.321, "v010_p95_ms": 104.927, "v011_median_ms": 0.454, "v011_p95_ms": 0.719}
+  ]
+}

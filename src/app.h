@@ -101,6 +101,11 @@ class App {
     NOTIFYICONDATAW tray{};
     int selected = -1, selectedObject = -1;
     Image original, rendered, snapshot;
+    Image displayCache;
+    Bitmap *displayCacheSource = nullptr;
+    RECT displayCacheView{};
+    void clearDisplayCache();
+    Bitmap *scaledDisplay(Bitmap &source, RECT view, int width, int height);
     OverlayRenderer overlayRenderer;
     std::wstring pressedClose;
     std::set<std::wstring> checkedHistory;
@@ -283,6 +288,8 @@ class App {
     void finishCanvasGrow(bool cancel = false);
     void pasteImage();
     void verifyCanvas();
+    void benchmark();
+    std::wstring aboutText() const;
     void saveView();
     void duplicateObject();
     void deleteObject();
