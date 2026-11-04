@@ -114,8 +114,8 @@ void App::setTool(Tool next) {
     if (tool == Tool::Text)
         statusText(L"이미지 위에 텍스트 영역을 드래그하세요. Enter 줄바꿈 · Ctrl+Enter 확정 · Esc 취소");
     else if (tool == Tool::PixelSelect)
-        statusText(
-            L"사각형 선택 후 테두리·모서리는 크기 조절, 안쪽은 이동합니다. Ctrl+C 영역 복사 · Esc 해제");
+        statusText(L"사각형 선택 후 테두리·모서리는 크기 조절, 안쪽은 이동합니다. Delete 영역 삭제 · Ctrl+C "
+                   L"영역 복사 · Esc 해제");
 }
 void App::setPenWidth(int value) {
     stroke = (float)std::clamp(value, 1, 80);

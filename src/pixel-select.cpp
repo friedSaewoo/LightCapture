@@ -101,9 +101,24 @@ void App::pixelUp() {
         pixelRect = destination;
         pixelReady = true;
     }
-    statusText(pixelReady ? L"테두리·모서리: 크기 조절 · 안쪽: 이동 · Ctrl+C: 영역 복사 · Esc: 선택 해제"
+    statusText(pixelReady ? L"테두리·모서리: 크기 조절 · 안쪽: 이동 · Delete: 영역 삭제 · Ctrl+C: 영역 복사 "
+                            L"· Esc: 선택 해제"
                           : L"이미지에서 사각형 영역을 드래그해 선택하세요.");
     InvalidateRect(canvas, nullptr, FALSE);
+}
+void App::deletePixelSelection() {
+    if (busy || !doc() || !rendered || !pixelReady || pixelSelecting || pixelMoving)
+        return;
+    auto area = bounded(pixelRect, viewRect(*doc()));
+    if (rw(area) <= 0 || rh(area) <= 0)
+        return;
+    Command erase;
+    erase.tool = Tool::PixelSelect;
+    erase.rect = area;
+    // A selection command without a destination clears pixels without pasting them back.
+    edit(std::move(erase));
+    selectedObject = -1;
+    statusText(L"선택 영역을 삭제했습니다. Ctrl+Z로 되돌릴 수 있습니다.");
 }
 void App::paintPixelSelection(Graphics &g, RECT bounds, RECT view) {
     if ((!pixelReady && !pixelSelecting) || rw(pixelRect) <= 0 || rh(pixelRect) <= 0)

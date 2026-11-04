@@ -1004,6 +1004,10 @@ LRESULT CALLBACK App::canvasProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             }
             return 0;
         case WM_KEYDOWN:
+            if (w == VK_DELETE && a->tool == Tool::PixelSelect) {
+                a->deletePixelSelection();
+                return 0;
+            }
             if (w == VK_ESCAPE) {
                 if (a->canvasGrowing) {
                     a->finishCanvasGrow(true);

@@ -1,0 +1,13 @@
+{
+  "checks_passed": 50,
+  "hover_canvas_growth_white_pixels_undo_reload": true,
+  "paste_png_dib_v5_transparency_and_invalid_data": true,
+  "pasted_image_move_resize_undo_save_reload": true,
+  "large_paste_expands_canvas_atomically": true,
+  "all_edges_top_left_anchor_undo_and_object_editing": true,
+  "large_paste_has_32px_surrounding_margin": true,
+  "preview_buffers_reused_and_released": true,
+  "computer_use": false,
+  "system_clipboard_read": false,
+  "system_clipboard_modified": false
+}

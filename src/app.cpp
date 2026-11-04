@@ -482,7 +482,9 @@ void App::command(UINT id) {
         }
         break;
     case ID_DELETE:
-        if (GetFocus() == canvas && tool == Tool::Select && selectedObject >= 0)
+        if (GetFocus() == canvas && tool == Tool::PixelSelect)
+            deletePixelSelection();
+        else if (GetFocus() == canvas && tool == Tool::Select && selectedObject >= 0)
             deleteObject();
         else
             deleteSelected();

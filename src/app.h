@@ -194,6 +194,7 @@ class App {
     void pixelDown(POINT imagePoint);
     void pixelMove(POINT imagePoint);
     void pixelUp();
+    void deletePixelSelection();
     void paintPixelSelection(Graphics &g, RECT imageBounds, RECT view);
     void verifyPixelSelection();
     void startText(Command command);

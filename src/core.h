@@ -33,7 +33,7 @@ using Gdiplus::Color;
 using Gdiplus::Graphics;
 using Image = std::unique_ptr<Bitmap>;
 inline const wchar_t *AppName = L"LightCapture";
-inline const wchar_t *Version = L"1.0.0";
+inline const wchar_t *Version = L"1.0.1";
 inline RECT normalized(POINT a, POINT b) {
     return {std::min(a.x, b.x), std::min(a.y, b.y), std::max(a.x, b.x), std::max(a.y, b.y)};
 }
@@ -614,21 +614,24 @@ inline Image render(Bitmap &original, const Document &d) {
         if (skip[i] || c.tool == Tool::Crop || c.tool == Tool::Erase || c.tool == Tool::Reset ||
             c.tool == Tool::CanvasSize)
             continue;
-        if (c.tool == Tool::PixelSelect && !c.points.empty()) {
+        if (c.tool == Tool::PixelSelect) {
             auto source = bounded(c.rect, {0, 0, (LONG)out->GetWidth(), (LONG)out->GetHeight()});
             if (rw(source) <= 0 || rh(source) <= 0)
                 continue;
-            auto patch = crop(*out, source); // Copy before clearing, including overlapping moves.
+            // Empty destination means Delete. Moves must copy before clearing, including overlaps.
+            auto patch = c.points.empty() ? Image{} : crop(*out, source);
             Graphics g(out.get());
             g.SetCompositingMode(Gdiplus::CompositingModeSourceCopy);
             Gdiplus::SolidBrush white(Color::White);
             require(g.FillRectangle(&white, (int)source.left, (int)source.top, rw(source), rh(source)) ==
                         Gdiplus::Ok,
                     "selected pixel source could not be cleared");
-            auto destination = pixelDestination(c);
-            drawPixelPatch(g, *patch,
-                           {(float)destination.left, (float)destination.top, (float)rw(destination),
-                            (float)rh(destination)});
+            if (patch) {
+                auto destination = pixelDestination(c);
+                drawPixelPatch(g, *patch,
+                               {(float)destination.left, (float)destination.top, (float)rw(destination),
+                                (float)rh(destination)});
+            }
         } else if (c.tool == Tool::Mosaic)
             mosaic(*out, c.rect, (int)c.width);
         else {

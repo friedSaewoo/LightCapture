@@ -1,0 +1,10 @@
+PASS 80 partial repaints equal full reference including polygon and edge panels
+PASS 120 rectangle movements coalesced into 30 paints equal full reference
+PASS 100 selector prepare/clear cycles release every GDI resource
+PASS one-pixel drag excludes unchanged selection interior
+PASS selected pixels preserve original RGB
+PASS outside selection is dimmed
+BENCH 1920x1080 old median/p95 12.372/14.756 ms; new 0.329/0.382 ms
+BENCH 3840x2160 old median/p95 51.143/103.019 ms; new 1.152/1.816 ms
+BENCH 7680x2160 old median/p95 190.829/223.056 ms; new 1.045/1.564 ms
+RESULT 6 overlay checks passed; 3 synthetic benchmark cases completed

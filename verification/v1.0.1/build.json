@@ -1,0 +1,19 @@
+{
+  "Version": "1.0.1",
+  "PEMachine": "0x8664 AMD64",
+  "ExecutableSHA256": "f9281f7692e1c7a923c7e997bafe5bec05303a1b7592859e06ae87a2b438d63c",
+  "ExecutableBytes": 2045440,
+  "CoreChecksPassed": 49,
+  "ClipboardPixelChecksPassed": 11,
+  "OverlayChecksPassed": 6,
+  "PixelSelectionChecksPassed": 86,
+  "PaintChecksPassed": 23,
+  "CanvasEditChecksPassed": 50,
+  "DeleteSelectionWhitePixels": true,
+  "DeleteUndoRedoReloadCopy": true,
+  "DeleteAfterResizeMoveCrop": true,
+  "ComputerUseUsed": false,
+  "DesktopCapturePerformed": false,
+  "SystemClipboardModified": false,
+  "PhysicalKeyboardInputTested": false
+}

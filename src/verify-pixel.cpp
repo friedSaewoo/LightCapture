@@ -5,6 +5,15 @@ static Color colorAt(Bitmap &image, int x, int y) {
     require(image.GetPixel(x, y, &c) == Gdiplus::Ok, "selection test pixel unavailable");
     return c;
 }
+static bool equalPixels(Bitmap &a, Bitmap &b) {
+    if (a.GetWidth() != b.GetWidth() || a.GetHeight() != b.GetHeight())
+        return false;
+    for (UINT y = 0; y < a.GetHeight(); ++y)
+        for (UINT x = 0; x < a.GetWidth(); ++x)
+            if (colorAt(a, x, y).GetValue() != colorAt(b, x, y).GetValue())
+                return false;
+    return true;
+}
 static void pixelPreview(HWND window, const fs::path &path) {
     RECT r{}, outer{};
     GetClientRect(window, &r);
@@ -310,6 +319,85 @@ void App::verifyPixelSelection() {
     select(selected);
     check(!pixelReady && !pixelResize && !pixelPatch && !pixelBackdrop,
           "reload retained resize state or buffers");
+    // Delete must edit pixels, never remove a checked capture from history.
+    auto deleteImage = std::make_unique<Bitmap>(260, 180, PixelFormat32bppARGB);
+    {
+        Graphics g(deleteImage.get());
+        g.Clear(Color(0xff16a34a));
+    }
+    add(std::move(deleteImage));
+    edit(annotation);
+    zoom = 1;
+    auto deleteBefore = clone(*rendered);
+    count = doc()->cursor;
+    auto documentId = doc()->id;
+    auto historyCount = store.docs.size();
+    choose();
+    canvasProc(canvas, WM_KEYDOWN, VK_DELETE, 0);
+    check(doc()->id == documentId && store.docs.size() == historyCount && doc()->cursor == count + 1 &&
+              !pixelReady && !pixelPatch && !pixelBackdrop && selectedObject == -1,
+          "Delete removed a capture or failed to commit one pixel edit and clear selection");
+    bool deletePixels = true;
+    for (int y = 0; y < 180; ++y)
+        for (int x = 0; x < 260; ++x)
+            deletePixels &=
+                colorAt(*rendered, x, y).GetValue() == (x >= 20 && x < 100 && y >= 20 && y < 80
+                                                            ? Color::White
+                                                            : colorAt(*deleteBefore, x, y).GetValue());
+    check(deletePixels, "Delete failed to clear selected photo and annotations or changed outside pixels");
+    canvasProc(canvas, WM_KEYDOWN, VK_DELETE, 0);
+    check(doc()->cursor == count + 1 && store.docs.size() == historyCount,
+          "Delete with no pixel selection changed history");
+    auto deletedImage = clone(*rendered);
+    command(ID_UNDO);
+    check(doc()->cursor == count && equalPixels(*rendered, *deleteBefore),
+          "Delete undo did not restore every original pixel");
+    undo(true);
+    check(equalPixels(*rendered, *deletedImage), "Delete redo did not restore cleared pixels");
+    Store deletedStore(store.root);
+    auto deletedDocument = deletedStore.read(*doc());
+    auto deletedOriginal = loadImage(deletedStore.png(deletedDocument));
+    auto deletedOutput = output(*deletedOriginal, deletedDocument);
+    check(equalPixels(*deletedOutput, *deletedImage) && deletedDocument.commands.back().points.empty(),
+          "Delete did not roundtrip through metadata and image output");
+    select(selected);
+    check(equalPixels(*rendered, *deletedImage), "Delete was lost after document reload");
+    clipboardVerifier = [&](const ClipboardImage &formats) {
+        auto copied = decodeImageBytes(formats.png);
+        check(copied && equalPixels(*copied, *deletedImage), "Delete did not reach copied image pixels");
+    };
+    command(ID_COPY);
+    clipboardVerifier = {};
+    command(ID_UNDO);
+    zoom = 1;
+    choose();
+    down(100, 80);
+    up(140, 110);
+    down(60, 50);
+    up(110, 80);
+    auto movedBeforeDelete = clone(*rendered);
+    auto deletedArea = pixelRect;
+    count = doc()->cursor;
+    canvasProc(canvas, WM_KEYDOWN, VK_DELETE, 0);
+    check(doc()->cursor == count + 1 &&
+              colorAt(*rendered, deletedArea.left + 10, deletedArea.top + 10).GetValue() == Color::White,
+          "Delete failed after selection resize and movement");
+    command(ID_UNDO);
+    check(equalPixels(*rendered, *movedBeforeDelete),
+          "Delete undo after resize and movement changed earlier edits");
+    edit(cropView);
+    zoom = 1;
+    down(20, 10);
+    up(60, 50);
+    auto croppedBeforeDelete = clone(*rendered);
+    canvasProc(canvas, WM_KEYDOWN, VK_DELETE, 0);
+    result = output(*original, *doc());
+    check(result->GetWidth() == 190 && result->GetHeight() == 140 &&
+              colorAt(*result, 0, 0).GetValue() == Color::White &&
+              colorAt(*rendered, 10, 10).GetValue() == colorAt(*croppedBeforeDelete, 10, 10).GetValue(),
+          "Delete ignored crop coordinates or changed canvas dimensions");
+    command(ID_UNDO);
+    check(equalPixels(*rendered, *croppedBeforeDelete), "cropped Delete undo changed source pixels");
     while (!store.docs.empty())
         removeHistory(0);
     std::ofstream report(store.root / L"pixel-selection-verification.json");
@@ -322,6 +410,9 @@ void App::verifyPixelSelection() {
               "  \"resize_cursor_and_zoom_hit_targets\": true,\n"
               "  \"resize_pixels_undo_reload_copy_export\": true,\n"
               "  \"resize_minimum_bounds_crop_and_cancel\": true,\n"
+              "  \"delete_selected_pixels_undo_redo_reload_copy\": true,\n"
+              "  \"delete_after_resize_move_and_crop\": true,\n"
+              "  \"delete_preserves_capture_history_and_outside_pixels\": true,\n"
               "  \"computer_use\": false,\n  \"system_clipboard_modified\": false\n}\n";
 }
 } // namespace lc
