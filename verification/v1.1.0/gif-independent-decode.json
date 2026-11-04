@@ -1,0 +1,81 @@
+{
+  "decoder": "Pillow 13.0.0",
+  "allFramesDecoded": true,
+  "deltaEveryPixelExact": true,
+  "disposalKeepsPrevious": true,
+  "infiniteLoop": true,
+  "files": [
+    {
+      "file": "gif-color-test.gif",
+      "width": 640,
+      "height": 360,
+      "frames": 1,
+      "durationMs": 100,
+      "bytes": 20369,
+      "loop": 0
+    },
+    {
+      "file": "gif-delta-test.gif",
+      "width": 320,
+      "height": 180,
+      "frames": 36,
+      "durationMs": 3000,
+      "bytes": 3584,
+      "loop": 0
+    },
+    {
+      "file": "gif-gradient-test.gif",
+      "width": 640,
+      "height": 360,
+      "frames": 12,
+      "durationMs": 1200,
+      "bytes": 2275,
+      "loop": 0
+    },
+    {
+      "file": "gif-saved-test.gif",
+      "width": 320,
+      "height": 180,
+      "frames": 10,
+      "durationMs": 1000,
+      "bytes": 1426,
+      "loop": 0
+    },
+    {
+      "file": "gif-static-test.gif",
+      "width": 320,
+      "height": 180,
+      "frames": 1,
+      "durationMs": 12000,
+      "bytes": 693,
+      "loop": 0
+    },
+    {
+      "file": "compact_full_motion_6s.gif",
+      "width": 960,
+      "height": 540,
+      "frames": 60,
+      "durationMs": 6000,
+      "bytes": 1670834,
+      "loop": 0
+    },
+    {
+      "file": "sharp_full_motion_2s.gif",
+      "width": 1600,
+      "height": 900,
+      "frames": 30,
+      "durationMs": 2000,
+      "bytes": 1565999,
+      "loop": 0
+    },
+    {
+      "file": "standard_ui_30s.gif",
+      "width": 1280,
+      "height": 720,
+      "frames": 360,
+      "durationMs": 30000,
+      "bytes": 58244,
+      "loop": 0
+    }
+  ]
+}

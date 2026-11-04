@@ -35,6 +35,7 @@ void App::begin(Mode m) {
         return;
     }
     mode = m;
+    gifRequested = false;
     previous = GetForegroundWindow();
     previouslyVisible = IsWindowVisible(main);
     busy = true;
@@ -146,6 +147,7 @@ void App::createOverlay() {
     ShowWindow(overlay, SW_SHOW);
 }
 void App::cancelCapture(bool restoreEditor) {
+    gifRequested = false;
     KillTimer(main, 3);
     KillTimer(main, 5);
     waitingForHide = false;
@@ -284,6 +286,16 @@ void App::finishCapture() {
         quickBar = nullptr;
     }
     overlayRenderer.clear();
+    if (gifRequested) {
+        RECT screen = r;
+        OffsetRect(&screen, virtualRect.left, virtualRect.top);
+        snapshot.reset();
+        targets.clear();
+        polygon.clear();
+        dragging = false;
+        prepareGif(screen);
+        return;
+    }
     if (mode == Mode::Scroll) {
         RECT screen = r;
         OffsetRect(&screen, virtualRect.left, virtualRect.top);

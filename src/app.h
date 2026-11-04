@@ -2,6 +2,7 @@
 #include "core.h"
 #include "clipboard.h"
 #include "overlay.h"
+#include "gif.h"
 #include <functional>
 #include <map>
 #include <set>
@@ -66,6 +67,7 @@ enum : UINT {
     ID_PEN_WIDTH_LABEL,
     ID_PEN_WIDTH_TITLE,
     ID_PASTE_IMAGE,
+    ID_GIF,
     WM_FINISH_TEXT = WM_APP + 8,
     WM_TRAY = WM_APP + 1,
     WM_SECOND = WM_APP + 2
@@ -158,6 +160,23 @@ class App {
     HWND scrollTarget = nullptr;
     bool scrollHorizontal = false, scrollManual = false;
     bool currentMonitor = false;
+    bool gifRequested = false;
+    enum class GifState { Closed, Ready, Countdown, Recording, Finishing, Preview };
+    GifState gifState = GifState::Closed;
+    HWND gifWindow = nullptr;
+    RECT gifRect{};
+    int gifProfile = 0;
+    bool gifCursor = true, gifCancelled = false, gifPlaying = true, gifExcluded = false;
+    bool gifStopKey = false, gifCancelKey = false;
+    UINT gifSamples = 0;
+    ULONGLONG gifUiTime = 0;
+    ULONGLONG gifCountdown = 0, gifStarted = 0, gifLastFrame = 0, gifStopped = 0;
+    SIZE gifOutput{};
+    std::wstring gifNotice;
+    std::unique_ptr<GifSession> gifSession;
+    std::unique_ptr<GifCaptureBuffer> gifBuffer;
+    std::unique_ptr<GifPreview> gifPreview;
+    std::function<GifFrame(RECT, SIZE, ULONGLONG)> gifFrameProvider;
     Image scrollPrevious, scrollResult;
     std::wstring warning;
     std::vector<std::pair<UINT, HWND>> topControls;
@@ -290,6 +309,18 @@ class App {
     void pasteImage();
     void verifyCanvas();
     void benchmark();
+    void beginGif();
+    void prepareGif(RECT area);
+    void startGif(ULONGLONG now = 0);
+    void tickGif(ULONGLONG now = 0);
+    void stopGif(bool cancelled = false, ULONGLONG now = 0);
+    void closeGif(bool restore = true);
+    void saveGif();
+    void layoutGif();
+    void paintGif(HDC dc);
+    void verifyGif();
+    void benchmarkGif();
+    static LRESULT CALLBACK gifProc(HWND, UINT, WPARAM, LPARAM);
     std::wstring aboutText() const;
     void saveView();
     void duplicateObject();

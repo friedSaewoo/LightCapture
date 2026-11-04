@@ -1,0 +1,26 @@
+{
+  "Version": "1.1.0",
+  "PEMachine": "0x8664 AMD64",
+  "ExecutableSHA256": "8f4b4e7946bbf4b3c3fa83c49d6292279e0d77c5d50e378f7b461a1824e773c7",
+  "ExecutableBytes": 2206208,
+  "CoreChecksPassed": 49,
+  "ClipboardPixelChecksPassed": 11,
+  "OverlayChecksPassed": 6,
+  "PixelSelectionChecksPassed": 86,
+  "PaintChecksPassed": 23,
+  "CanvasEditChecksPassed": 50,
+  "GifChecksPassed": 36,
+  "IndependentGifFilesDecoded": 8,
+  "GifProfiles": [
+    "12fps 1280px",
+    "15fps 1600px",
+    "10fps 960px"
+  ],
+  "GifQueueLimit": 3,
+  "GifDurationLimitSeconds": 120,
+  "GifSoftLimitMiB": 80,
+  "ComputerUseUsed": false,
+  "DesktopCapturePerformed": false,
+  "SystemClipboardModified": false,
+  "PhysicalKeyboardInputTested": false
+}

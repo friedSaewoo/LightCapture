@@ -1,0 +1,17 @@
+{
+  "checks_passed": 36,
+  "delta_frames": 36,
+  "delta_bytes": 3584,
+  "delta_encoded_pixels": 79300,
+  "gradient_mean_absolute_channel_error": 6.27024,
+  "queue_peak": 3,
+  "overload_dropped_samples": 74,
+  "timing_delta_composition_loop_static_merge": true,
+  "region_countdown_record_stop_preview_save_cancel": true,
+  "profiles_no_upscale_aspect_size_limits": true,
+  "bounded_queue_streaming_and_cleanup": true,
+  "duration_size_limits_stop_hotkeys_rerecord_save_failure": true,
+  "computer_use": false,
+  "desktop_capture_performed": false,
+  "system_clipboard_modified": false
+}

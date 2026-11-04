@@ -1,0 +1,19 @@
+{
+  "checks_passed": 86,
+  "rectangle_pixel_move": true,
+  "photo_and_annotations_moved": true,
+  "overlap_safe": true,
+  "undo_and_metadata_roundtrip": true,
+  "selected_region_copy": true,
+  "crop_boundary_clamp": true,
+  "preview_buffers_reused_and_released": true,
+  "eight_border_and_corner_resize_targets": true,
+  "resize_cursor_and_zoom_hit_targets": true,
+  "resize_pixels_undo_reload_copy_export": true,
+  "resize_minimum_bounds_crop_and_cancel": true,
+  "delete_selected_pixels_undo_redo_reload_copy": true,
+  "delete_after_resize_move_and_crop": true,
+  "delete_preserves_capture_history_and_outside_pixels": true,
+  "computer_use": false,
+  "system_clipboard_modified": false
+}

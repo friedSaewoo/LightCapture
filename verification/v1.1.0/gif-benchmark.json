@@ -1,0 +1,14 @@
+{
+  "desktop_capture_performed": false,
+  "system_clipboard_modified": false,
+  "computer_use": false,
+  "initial_working_set_mib": 17.027,
+  "cases": [
+    {"name": "standard_ui_30s", "width": 1280, "height": 720, "fps": 12, "frames": 360, "duration_ms": 30000, "bytes": 58244, "encoded_pixels": 1091780, "encode_median_ms": 1.153, "encode_p95_ms": 2.961, "encode_max_ms": 16.734, "working_set_peak_mib": 34.805, "private_peak_mib": 14.988, "preview_working_set_mib": 31.895, "working_set_every_30_frames_mib": [34.672, 34.672, 34.672, 34.672, 34.609, 34.609, 34.680, 34.680, 34.680, 34.680, 34.680, 34.680]},
+    {"name": "sharp_full_motion_2s", "width": 1600, "height": 900, "fps": 15, "frames": 30, "duration_ms": 2000, "bytes": 1565999, "encoded_pixels": 40230400, "encode_median_ms": 19.620, "encode_p95_ms": 20.695, "encode_max_ms": 22.912, "working_set_peak_mib": 40.578, "private_peak_mib": 20.766, "preview_working_set_mib": 35.211, "working_set_every_30_frames_mib": [40.578]},
+    {"name": "compact_full_motion_6s", "width": 960, "height": 540, "fps": 10, "frames": 60, "duration_ms": 6000, "bytes": 1670834, "encoded_pixels": 27479040, "encode_median_ms": 8.742, "encode_p95_ms": 11.253, "encode_max_ms": 12.386, "working_set_peak_mib": 30.105, "private_peak_mib": 10.387, "preview_working_set_mib": 28.273, "working_set_every_30_frames_mib": [30.105, 30.105]}
+  ],
+  "after_working_set_mib": 24.219,
+  "after_private_mib": 4.383,
+  "limits": "Synthetic encoder and decoder only; real capture, input latency, GPU and video entropy vary."
+}

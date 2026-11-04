@@ -88,6 +88,7 @@ LRESULT CALLBACK App::quickProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 AppendMenuW(menu, MF_STRING, ID_UNIT, L"단위영역 캡처");
                 AppendMenuW(menu, MF_STRING, ID_SCROLL, L"스크롤 캡처");
                 AppendMenuW(menu, MF_STRING, ID_FIXED, L"크기 지정 캡처");
+                AppendMenuW(menu, MF_STRING, ID_GIF, L"GIF 영역 녹화");
                 RECT rect{};
                 GetWindowRect(GetDlgItem(h, ID_FIXED), &rect);
                 UINT chosen = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_LEFTALIGN, rect.left, rect.bottom, 0,
@@ -97,8 +98,15 @@ LRESULT CALLBACK App::quickProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                     return 0;
                 id = chosen;
             }
-            if (id >= ID_CAPTURE && id <= ID_FIXED)
+            if (id == ID_GIF) {
+                a->gifRequested = true;
+                a->switchCaptureMode(Mode::Rectangle);
+                SetWindowTextW(GetDlgItem(h, ID_CAPTURE), L"GIF 영역");
+            } else if (id >= ID_CAPTURE && id <= ID_FIXED) {
+                a->gifRequested = false;
+                SetWindowTextW(GetDlgItem(h, ID_CAPTURE), L"영역");
                 a->switchCaptureMode((Mode)(id - ID_CAPTURE));
+            }
             return 0;
         }
         if (m == WM_PAINT) {

@@ -23,6 +23,7 @@ void App::createToolbar() {
     };
     button(ID_CAPTURE, L"새 캡처", 108);
     button(ID_NEW_CANVAS, L"그림판", 80);
+    button(ID_GIF, L"GIF 녹화", 88);
     button(ID_WINDOW, L"창", 56);
     button(ID_FULL, L"전체 화면", 88);
     button(ID_SCROLL, L"스크롤", 68);
@@ -65,8 +66,9 @@ int App::layoutToolbar(int width, UINT dpi) {
             }
         }
     };
-    group(430);
-    for (UINT id : {(UINT)ID_CAPTURE, (UINT)ID_NEW_CANVAS, (UINT)ID_WINDOW, (UINT)ID_FULL, (UINT)ID_SCROLL}) {
+    group(528);
+    for (UINT id : {(UINT)ID_CAPTURE, (UINT)ID_NEW_CANVAS, (UINT)ID_GIF, (UINT)ID_WINDOW, (UINT)ID_FULL,
+                    (UINT)ID_SCROLL}) {
         HWND h = GetDlgItem(main, id);
         int w = s((int)(INT_PTR)GetPropW(h, L"LCBaseWidth"));
         MoveWindow(h, x, y, w, s(36), TRUE);

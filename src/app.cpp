@@ -361,6 +361,13 @@ void App::layout() {
     MoveWindow(canvas, railWidth, top, std::max(1, sidebar - railWidth), canvasHeight, TRUE);
 }
 void App::command(UINT id) {
+    if (gifState != GifState::Closed && id != ID_QUIT) {
+        if (gifWindow && !testMode) {
+            ShowWindow(gifWindow, SW_SHOWNORMAL);
+            SetForegroundWindow(gifWindow);
+        }
+        return;
+    }
     if (canvasGrowing) {
         finishCanvasGrow(true);
         if (id == ID_UNDO)
@@ -384,6 +391,9 @@ void App::command(UINT id) {
         return;
     }
     switch (id) {
+    case ID_GIF:
+        beginGif();
+        break;
     case ID_NEW_CANVAS:
         newCanvas();
         break;
@@ -592,6 +602,7 @@ LRESULT CALLBACK App::mainProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             item(capture, ID_SCROLLH, L"가로 스크롤 캡처");
             item(capture, ID_SCROLLMANUAL, L"수동 스크롤 캡처");
             item(capture, ID_MONITOR, L"마우스가 있는 모니터 캡처");
+            item(capture, ID_GIF, L"GIF 영역 녹화...");
             item(edit, ID_COPY, L"이미지 복사\tCtrl+C");
             item(edit, ID_PASTE_IMAGE, L"이미지 붙여넣기\tCtrl+V");
             item(edit, ID_ORIGINAL, L"원본으로 복원...");
@@ -687,6 +698,19 @@ LRESULT CALLBACK App::mainProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 a->command(LOWORD(w));
             return 0;
         case WM_HOTKEY:
+            if (a->gifState != GifState::Closed) {
+                if (w == 68)
+                    a->stopGif(true);
+                else if (w == 67 || (UINT)w == a->hotId) {
+                    if (a->gifState == GifState::Recording)
+                        a->stopGif();
+                    else if (a->gifState == GifState::Countdown)
+                        a->stopGif(true);
+                    else if (a->gifWindow && !a->testMode)
+                        SetForegroundWindow(a->gifWindow);
+                }
+                return 0;
+            }
             if (w == 66 && a->scrollBar) {
                 a->stopScroll(true);
                 return 0;
@@ -712,7 +736,9 @@ LRESULT CALLBACK App::mainProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 a->trayMenu();
             return 0;
         case WM_TIMER:
-            if (w == 3 || w == 5)
+            if (w == 7)
+                a->tickGif();
+            else if (w == 3 || w == 5)
                 a->pollCaptureStart();
             else if (w == 4)
                 a->scrollTick();
@@ -723,6 +749,8 @@ LRESULT CALLBACK App::mainProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             }
             return 0;
         case WM_DISPLAYCHANGE:
+            if (a->gifState != GifState::Closed)
+                a->stopGif(true);
             if (a->overlay)
                 a->cancelCapture();
             return 0;
@@ -748,6 +776,8 @@ LRESULT CALLBACK App::mainProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             a->hide();
             return 0;
         case WM_DESTROY:
+            if (a->gifState != GifState::Closed)
+                a->closeGif(false);
             try {
                 a->saveView();
             } catch (...) {
@@ -767,6 +797,8 @@ LRESULT CALLBACK App::mainProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             return 0;
         }
     } catch (const std::exception &e) {
+        if (a->gifState != GifState::Closed)
+            a->closeGif();
         if (a->busy) {
             if (a->scrollBar)
                 a->stopScroll(true);
@@ -1090,7 +1122,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
     InitCommonControlsEx(&ic);
     int argc;
     auto argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    bool hidden = false, smoke = false, verify = false, customData = false, benchmark = false;
+    bool hidden = false, smoke = false, verify = false, customData = false, benchmark = false,
+         gifBenchmark = false;
     fs::path root = defaultData();
     for (int i = 1; i < argc; i++) {
         if (wcscmp(argv[i], L"--tray") == 0)
@@ -1104,6 +1137,10 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
             hidden = true;
         } else if (wcscmp(argv[i], L"--benchmark") == 0) {
             benchmark = true;
+            smoke = true;
+            hidden = true;
+        } else if (wcscmp(argv[i], L"--benchmark-gif") == 0) {
+            gifBenchmark = true;
             smoke = true;
             hidden = true;
         } else if (wcscmp(argv[i], L"--data") == 0 && i + 1 < argc) {
@@ -1140,6 +1177,10 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
                 instance.verify();
                 PostMessageW(instance.main, WM_COMMAND, ID_QUIT, 0);
             }
+            if (gifBenchmark) {
+                instance.benchmarkGif();
+                PostMessageW(instance.main, WM_COMMAND, ID_QUIT, 0);
+            }
             if (benchmark) {
                 instance.benchmark();
                 PostMessageW(instance.main, WM_COMMAND, ID_QUIT, 0);
@@ -1160,6 +1201,27 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, LPWSTR, int) {
             HACCEL accel = CreateAcceleratorTableW(keys.data(), keys.size());
             MSG msg;
             while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
+                if (instance.gifWindow &&
+                    (msg.hwnd == instance.gifWindow || IsChild(instance.gifWindow, msg.hwnd))) {
+                    if (msg.message == WM_KEYDOWN && msg.wParam == 'S' &&
+                        (GetKeyState(VK_CONTROL) & 0x8000)) {
+                        try {
+                            instance.saveGif();
+                        } catch (const std::exception &ex) {
+                            instance.report(ex);
+                        }
+                        continue;
+                    }
+                    if (msg.message == WM_KEYDOWN && (msg.wParam == VK_ESCAPE || msg.wParam == VK_F8)) {
+                        instance.stopGif(msg.wParam == VK_ESCAPE);
+                        continue;
+                    }
+                    if (!IsDialogMessageW(instance.gifWindow, &msg)) {
+                        TranslateMessage(&msg);
+                        DispatchMessageW(&msg);
+                    }
+                    continue;
+                }
                 if (instance.quickBar && IsDialogMessageW(instance.quickBar, &msg))
                     continue;
                 if (GetFocus() == instance.textInput || !TranslateAcceleratorW(instance.main, accel, &msg)) {
