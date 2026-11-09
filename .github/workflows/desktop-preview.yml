@@ -71,19 +71,21 @@ jobs:
           "$qt/bin/macdeployqt" "$app"
           codesign --force --deep --sign - "$app"
           codesign --verify --deep --strict "$app"
-          mkdir -p artifacts stage/Licenses
-          mv "$app" stage/
-          cp desktop/README.md stage/README.md
+          mkdir -p artifacts LightCapture-macOS/Licenses
+          mv "$app" LightCapture-macOS/
+          cp desktop/README.md LightCapture-macOS/README.md
           for license in LGPL-3.0-only GPL-3.0-only; do
-            curl --fail --silent --show-error --location "https://raw.githubusercontent.com/qt/qtbase/v6.8.3/LICENSES/$license.txt" -o "stage/Licenses/$license.txt"
+            curl --fail --silent --show-error --location "https://raw.githubusercontent.com/qt/qtbase/v6.8.3/LICENSES/$license.txt" -o "LightCapture-macOS/Licenses/$license.txt"
           done
           giflib="$(brew --prefix giflib)"
-          cp "$giflib/COPYING" stage/Licenses/GIFLIB.txt
-          ditto -c -k --sequesterRsrc --keepParent stage "artifacts/LightCapture-1.2.0-preview.1-macos-${{ matrix.arch }}.zip"
+          cp "$giflib/COPYING" LightCapture-macOS/Licenses/GIFLIB.txt
+          ditto -c -k --sequesterRsrc --keepParent LightCapture-macOS "artifacts/LightCapture-1.2.0-preview.1-macos-${{ matrix.arch }}.zip"
           mkdir extracted
           ditto -x -k artifacts/*.zip extracted
-          codesign --verify --deep --strict extracted/stage/LightCapture.app
-          QT_QPA_PLATFORM=offscreen extracted/stage/LightCapture.app/Contents/MacOS/LightCapture --self-test
+          codesign --verify --deep --strict extracted/LightCapture-macOS/LightCapture.app
+          binary=extracted/LightCapture-macOS/LightCapture.app/Contents/MacOS/LightCapture
+          test "$(lipo -archs "$binary")" = "${{ matrix.arch }}"
+          QT_QPA_PLATFORM=cocoa "$binary" --self-test
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: macos-${{ matrix.arch }}
