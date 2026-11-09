@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=LightCapture
+Comment=Capture and edit screenshots
+Exec=lightcapture
+Icon=lightcapture
+Terminal=false
+Categories=Graphics;Utility;
+Actions=Capture;
+
+[Desktop Action Capture]
+Name=Capture an area
+Exec=lightcapture --capture

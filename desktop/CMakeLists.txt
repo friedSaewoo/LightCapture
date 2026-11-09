@@ -1,0 +1,35 @@
+cmake_minimum_required(VERSION 3.21)
+project(LightCaptureDesktop VERSION 1.2.0 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_AUTOMOC ON)
+find_package(Qt6 6.4 REQUIRED COMPONENTS Widgets Network)
+find_package(GIF 5.2 REQUIRED)
+find_package(Threads REQUIRED)
+add_executable(lightcapture MACOSX_BUNDLE
+    main.cpp editor.cpp canvas.cpp capture.cpp gif.cpp self-test.cpp)
+target_link_libraries(lightcapture PRIVATE Qt6::Widgets Qt6::Network GIF::GIF Threads::Threads)
+target_compile_options(lightcapture PRIVATE -Wall -Wextra -Wpedantic)
+if(APPLE)
+    enable_language(OBJCXX)
+    set_property(TARGET lightcapture PROPERTY OBJCXX_STANDARD 17)
+    target_sources(lightcapture PRIVATE platform-mac.mm)
+    set_source_files_properties(platform-mac.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+    target_link_libraries(lightcapture PRIVATE "-framework Carbon" "-framework CoreGraphics"
+        "-framework Foundation" "-framework ScreenCaptureKit")
+    set_target_properties(lightcapture PROPERTIES OUTPUT_NAME LightCapture
+        MACOSX_BUNDLE_GUI_IDENTIFIER com.friedsaewoo.lightcapture
+        MACOSX_BUNDLE_BUNDLE_NAME LightCapture
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(Qt6 REQUIRED COMPONENTS DBus)
+    find_package(X11 REQUIRED)
+    target_sources(lightcapture PRIVATE platform-linux.cpp)
+    target_link_libraries(lightcapture PRIVATE Qt6::DBus X11::X11)
+    install(TARGETS lightcapture RUNTIME DESTINATION bin)
+    install(FILES com.friedsaewoo.lightcapture.desktop DESTINATION share/applications)
+    install(FILES lightcapture.svg DESTINATION share/icons/hicolor/scalable/apps)
+else()
+    message(FATAL_ERROR "Use build.ps1 for the Windows edition.")
+endif()
